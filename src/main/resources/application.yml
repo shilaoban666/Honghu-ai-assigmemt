@@ -1,0 +1,98 @@
+spring:
+  application:
+    name: testDeepseekR1
+  
+  # 静态资源配置
+  web:
+    resources:
+      static-locations: classpath:/static/
+      cache:
+        period: 3600
+  
+  # Spring AI Ollama Configuration
+  ai:
+    ollama:
+      base-url: http://117.50.195.175:11434
+      chat:
+        enabled: true
+        options:
+          temperature: 0.7
+          top-p: 0.9
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:postgres}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:12345}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  liquibase:
+    change-log: classpath:DB/changelog/db.changelog-master.xml
+    enabled: true
+
+# Server Configuration
+server:
+  port: 8080
+  servlet:
+    context-path: /
+  # 禁用favicon.ico 404错误日志
+  error:
+    include-message: always
+
+# Logging Configuration
+logging:
+  level:
+    com.honghu.ut.test.ai.assigment.testdeepseekr1: DEBUG
+    org.springframework.ai.chat.metadata: INFO
+    org.springframework.ai: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  charset:
+    console: UTF-8
+    file: UTF-8
+  file:
+    name: logs/application.log
+    max-size: 10MB
+    max-history: 30
+
+# Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# Swagger Configuration
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+# Custom Application Properties
+app:
+  ai:
+    default-model: deepseek-r1:8b
+    default-temperature: 0.7
+    timeout:
+      seconds: 300
+    retry:
+      max-attempts: 3
+      delay-ms: 2000
+      backoff-multiplier: 2.0
+    connection:
+      pool-size: 50
+      connect-timeout: 120000
+      read-timeout: 600000
+      keep-alive: true
