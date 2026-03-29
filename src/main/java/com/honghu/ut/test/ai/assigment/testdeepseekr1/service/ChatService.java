@@ -1,5 +1,7 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.DefaultSystemPromptProvider;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
@@ -12,7 +14,6 @@ import com.knuddels.jtokkit.Encodings;
 import com.knuddels.jtokkit.api.Encoding;
 import com.knuddels.jtokkit.api.EncodingRegistry;
 import com.knuddels.jtokkit.api.EncodingType;
-import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,16 +29,14 @@ import org.springframework.ai.chat.prompt.SystemPromptTemplate;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.stereotype.Service;
-// import org.springframework.transaction.annotation.Transactional;  // 暂时注释，解决编译问题
+import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 /**
  * AI聊天服务实现
@@ -56,6 +55,9 @@ public class ChatService {
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
     private final AiTaskKeywordService aiTaskKeywordService;
+    private final ChatMemoryService chatMemoryService;
+    private final ChatMemoryConfig chatMemoryConfig;
+    private final DefaultSystemPromptProvider defaultSystemPromptProvider;
 
     // 流式响应日志配置（可通过 YAML 控制）
     // 在 application.yml 中设置：chat.streaming.log.enabled=true 开启详细日志
@@ -71,10 +73,6 @@ public class ChatService {
     // 如需 DeepSeek 精确统计，应以 Ollama 返回的 tokenUsage 为准
     private static final EncodingRegistry registry = Encodings.newDefaultEncodingRegistry();
     private static final Encoding encoding = registry.getEncoding(EncodingType.CL100K_BASE);
-    
-    // 默认最大上下文 token 数（可根据模型调整）
-    // 注意：这是一个软性限制，用于避免上下文过长，实际 token 数以模型返回为准
-    private static final int MAX_CONTEXT_TOKENS = 4096;
     
     // 模型路由配置
     // 简单指令/闲聊阈值：问题长度小于此值使用 8B 模型（常驻 CPU）
@@ -171,9 +169,9 @@ public class ChatService {
             request.setModel(routedModel);
             // 记录请求日志，便于监控和调试
             log.info("开始处理结构化聊天请求: {} (剩余重试次数: {})", request, remainingRetries);
-            // 构建系统提示词：如果客户端未提供，则使用默认的AI助手角色定义
-            String systemPrompt = request.getSystemMessage() != null ? 
-                    request.getSystemMessage() : "你是一个 helpful 的 AI 助手";
+            // 构建系统提示词：如果客户端未提供，则回退到 resources/prompts 中的默认提示词。
+            // 默认提示词由 DefaultSystemPromptProvider 在应用启动时一次性加载并缓存，避免每次请求重复读取文件。
+            String systemPrompt = resolveSystemPrompt(request.getSystemMessage());
 
             // 构建模型选项配置
             // temperature: 控制生成文本的随机性，0.0表示最确定性，1.0表示最随机
@@ -266,6 +264,8 @@ public class ChatService {
     @NotNull
     @Transactional  // 事务注解，确保会话创建和消息保存的原子性
     public Flux<ChatResponse> structuredStreamChatWithPersistence(ChatRequest request) {
+
+
         // 步骤 0: 智能模型路由策略
         // 如果用户未指定模型，系统将根据问题复杂度自动选择合适的模型
         // - 简单问题/闲聊 -> 8B 小模型 (响应快，成本低)
@@ -328,17 +328,34 @@ public class ChatService {
                 .content(request.getMessage())  // 用户输入的消息内容
                 .status("active")            // 消息状态：活着的对话
                 .build();
-        chatMessageRepository.save(userMsg);  // 保存用户消息
+        userMsg = chatMessageRepository.save(userMsg);  // 先写数据库，保证长期持久化完整
+        log.info("用户消息已保存到数据库：{}", userMsg);
+        // Redis 写入改为事务提交后再执行，避免数据库回滚但缓存已提前暴露。一致性设计说明：
+        // 1. PostgreSQL 是会话与消息的最终真源，所有消息必须先可靠落库。
+        // 2. Redis 只保存“短期工作记忆”，它是数据库的派生缓存，而不是唯一事实来源。
+        // 3. 因此这里采取“先写数据库，提交后再写 Redis”的策略，避免 DB 回滚但 Redis 已提前暴露。
+        chatMemoryService.appendMessageAfterCommit(userMsg);
 
 
         // 步骤 3: 获取当前会话的历史消息记录
-        // 按时间顺序获取该会话的所有历史消息，用于构建对话上下文
-        List<ChatMessage> history = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(finalSessionId);
+        // 优先从 Redis 短期记忆中读取，再按 token 预算精确截断；必要时回退数据库并回填 Redis。
+        // 这里拿到的是“原始历史全集”：优先 Redis，未命中再回退数据库。
+        // 注意：Redis 工作集允许暂时落后于数据库，因为它采用的是 after-commit 同步与读修复策略。
+        List<ChatMessage> history = loadSessionHistory(finalSessionId);
+        // 由于 Redis 是在事务提交后才异步补写，这里需要把“当前刚落库的用户消息”临时合并进上下文，
+        // 否则本轮请求在事务提交前读取 Redis 时，可能看不到刚保存的 userMsg。
+        history = mergeHistoryWithMessage(history, userMsg);
+        // 这里先统一解析 system prompt，后面 token 预算计算和 Prompt 组装都必须基于同一份最终提示词。
+        String systemPrompt = resolveSystemPrompt(request.getSystemMessage());
+        // 根据 system prompt 长度动态计算本次还能留给历史消息多少 token 预算
+        int historyTokenLimit = resolveHistoryTokenLimit(systemPrompt);
+        // 从新到旧累计 token，达到阈值立刻停止，拿到最近一段连续上下文
+        List<ChatMessage> selectedHistory = selectHistoryMessagesByTokenLimit(history, historyTokenLimit);
 
 
         // 步骤 4: 执行流式聊天并保存 AI 回复
         // 使用带历史记录和重试机制的流式聊天方法
-        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, history, MAX_RETRIES);
+        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, selectedHistory, MAX_RETRIES);
         
         // 异步保存 AI 响应到数据库（不阻塞流式传输）
         StringBuilder fullContent = new StringBuilder();
@@ -360,7 +377,9 @@ public class ChatService {
                             .content(fullContent.toString()) // 完整的 AI 回复内容
                             .status("completed")            // 消息状态：已完成
                             .build();
-                    chatMessageRepository.save(assistantMsg);  // 保存 AI 消息
+                    assistantMsg = chatMessageRepository.save(assistantMsg);  // 保存 AI 消息到数据库
+                    // assistant 消息同样走“提交后同步 Redis”，避免出现库回滚而缓存先可见
+                    chatMemoryService.appendMessageAfterCommit(assistantMsg);
                     log.info("AI 响应已保存到数据库，会话 ID={}, 消息长度={}", 
                             finalSessionId, fullContent.length());
                 })
@@ -374,21 +393,32 @@ public class ChatService {
         return Flux.defer(() -> {
             log.info("开始处理带历史记录的结构化流式聊天请求：{} (剩余重试次数：{})", request, remainingRetries);
 
-            String systemPrompt = request.getSystemMessage() != null && !request.getSystemMessage().isBlank()
-                    ? request.getSystemMessage()
-                    : "你是一个 helpful 的 AI 助手";
+            // 这里继续复用同样的默认提示词解析逻辑，确保流式与非流式接口行为一致。
+            String systemPrompt = resolveSystemPrompt(request.getSystemMessage());
 
             OllamaOptions options = OllamaOptions.create()
                     .withModel(request.getModel())
                     .withTemperature(request.getTemperature())
                     .withNumPredict(request.getMaxTokens());
 
+            // Prompt 的第一条始终是系统角色定义，用于约束模型行为
             List<Message> messages = new ArrayList<>();
             messages.add(new SystemMessage(systemPrompt));
 
+            // 把筛选后的历史消息按原顺序拼回 Prompt，形成完整上下文
+            for (ChatMessage historyMessage : history) {
+                Message promptMessage = toPromptMessage(historyMessage);
+                if (promptMessage != null) {
+                    messages.add(promptMessage);
+                }
+            }
+
 
             Prompt prompt = new Prompt(messages, options);
-            log.info("开始处理带历史记录的结构化流式聊天请求：{} (剩余重试次数：{})", request, remainingRetries);
+            log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, historyMessages={}",
+                    request.getSessionId(),
+                    systemPrompt != null ? encoding.countTokens(systemPrompt) : 0,
+                    history.size());
 
             // 使用流式响应日志记录器（可配置）
             return logStreamingResponse(ollamaChatModel.stream(prompt));
@@ -422,7 +452,8 @@ public class ChatService {
     private Flux<String> streamChatWithRetry(String message, int remainingRetries) {
         try {
             log.info("开始处理简单聊天请求: {} (剩余重试次数: {})", message, remainingRetries);
-            String systemPrompt =  "你是一个 helpful 的 AI 助手";
+            // 简单流式聊天没有 request 对象，因此直接使用缓存后的默认 system prompt。
+            String systemPrompt = resolveSystemPrompt(null);
             //
             Flux<String> content = chatClientBuilder.build()
                     .prompt(systemPrompt)
@@ -472,6 +503,24 @@ public class ChatService {
     }
 
     /**
+     * 统一解析本次请求应使用的系统提示词。
+     *
+     * <p>优先级：</p>
+     * <ol>
+     *     <li>请求中显式传入的 systemMessage</li>
+     *     <li>启动时从 resources 加载并缓存的默认系统提示词</li>
+     * </ol>
+     *
+     * <p>这样可以确保默认提示词只在应用启动时读取一次，运行期不会反复访问磁盘。</p>
+     */
+    private String resolveSystemPrompt(String requestSystemPrompt) {
+        if (requestSystemPrompt != null && !requestSystemPrompt.isBlank()) {
+            return requestSystemPrompt;
+        }
+        return defaultSystemPromptProvider.getPrompt();
+    }
+
+    /**
      * 根据 token 限制筛选历史消息
      * 从新到旧累加历史消息的 token 数，确保不超过最大上下文限制
      * 
@@ -485,48 +534,182 @@ public class ChatService {
      * @return 筛选后的历史消息列表（仍然保持升序排列）
      */
     private List<ChatMessage> selectHistoryMessagesByTokenLimit(List<ChatMessage> history, int maxTokens) {
-        if (history == null || history.isEmpty()) {
-            return new ArrayList<>();
+        if (history == null || history.isEmpty() || maxTokens <= 0) {
+            return List.of();  // 返回空列表，避免创建新对象
         }
 
-        // 首先将历史消息按时间倒序排列（最新的在前）
-        List<ChatMessage> reversedHistory = new ArrayList<>(history);
-        reversedHistory.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
-
+        // 1: 从后向前遍历，意味着优先保留“最近消息”
+        //    这是短期记忆窗口最重要的原则：越新的上下文优先级越高
         List<ChatMessage> selected = new ArrayList<>();
         int totalTokens = 0;
         int skippedCount = 0;
+        boolean debugEnabled = log.isDebugEnabled();
 
-        // 从新到旧遍历历史消息，累加 token 数（使用 CL100K_BASE 估算）
-        for (ChatMessage msg : reversedHistory) {
-            // 计算当前消息的 token 数（估算值）
-            int messageTokens = encoding.countTokens(msg.getContent());
+        // 2: 不创建倒序副本，直接从尾部扫描，减少一次额外拷贝
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatMessage msg = history.get(i);
             
-            // 如果加上这条消息会超过限制，则跳过
-            if (totalTokens + messageTokens > maxTokens) {
+            // 3: 跳过空消息，避免无效计算
+            if (msg.getContent() == null || msg.getContent().isBlank()) {
                 skippedCount++;
-                log.debug("跳过历史消息（token 超限）：角色={}, token 数={}, 累计 token={}", 
-                         msg.getChatRole(), messageTokens, totalTokens);
                 continue;
             }
             
-            // 否则添加这条消息
+            // 计算当前消息的 token 数（估算值）
+            // role 也会参与估算，避免只按 content 计算而低估上下文长度
+            int messageTokens = estimateMessageTokens(msg);
+            
+            // 4: 一旦达到 token 上限，立刻停止继续向前追溯
+            //    这里不是“跳过当前长消息继续找更老消息”，而是直接停下：
+            //    目的是保留最近的一段连续上下文，而不是把上下文切成碎片
+            if (totalTokens + messageTokens > maxTokens) {
+                if (selected.isEmpty()) {
+                    // 如果连最新一条都超限，仍然强制保留它，避免当前轮最关键的上下文丢失
+                    selected.add(msg);
+                    totalTokens += messageTokens;
+                    log.warn("最新消息单条 token 已超过历史阈值，仍强制保留：角色={}, token 数={}, 阈值={}",
+                            msg.getChatRole(), messageTokens, maxTokens);
+                } else {
+                    skippedCount += (i + 1);
+                    if (debugEnabled) {
+                        log.debug("达到 token 上限，停止继续追溯：角色={}, token 数={}, 当前累计={}, 阈值={}",
+                                msg.getChatRole(), messageTokens, totalTokens, maxTokens);
+                    }
+                }
+                break;
+            }
+            
+            // 这条消息仍在预算内，纳入本次 Prompt 的短期记忆窗口
             selected.add(msg);
             totalTokens += messageTokens;
             
-            log.debug("添加历史消息：角色={}, token 数={}, 累计 token={}", 
-                     msg.getChatRole(), messageTokens, totalTokens);
+            if (debugEnabled) {
+                log.debug("添加历史消息：角色={}, token 数={}, 累计 token={}", 
+                         msg.getChatRole(), messageTokens, totalTokens);
+            }
+        }
+
+        // 5: selected 当前顺序是“从新到旧”，而 Prompt 需要“从旧到新”
+        //    因此最后统一反转一次，恢复正常对话阅读顺序
+        if (selected.size() > 1) {
+            java.util.Collections.reverse(selected);
         }
 
         // 记录筛选统计信息
-        log.info("历史消息 token 筛选完成：原始总数={}, 选中={}, 跳过={}, 估算总 token 数={}/{}", 
-                history.size(), selected.size(), skippedCount, totalTokens, maxTokens);
-        log.warn("注意：token 数为 CL100K_BASE 估算值，实际消耗以 DeepSeek 返回的 tokenUsage 为准");
-
-        // 重新按时间升序排列，保持原有的顺序
-        selected.sort(Comparator.comparing(ChatMessage::getCreatedAt));
+        if (skippedCount > 0 || selected.size() > 0) {
+            log.info("历史消息 token 筛选完成：原始总数={}, 选中={}, 跳过={}, 估算总 token 数={}/{}", 
+                    history.size(), selected.size(), skippedCount, totalTokens, maxTokens);
+        }
         
         return selected;
+    }
+
+    private List<ChatMessage> loadSessionHistory(String sessionId) {
+        // 优先读取 Redis：它代表当前会话的短期工作记忆，速度更快
+        List<ChatMessage> redisHistory = chatMemoryService.getMessages(sessionId);
+        if (!redisHistory.isEmpty()) {
+            log.info("从 Redis 短期记忆加载历史消息：sessionId={}, 条数={}", sessionId, redisHistory.size());
+            return redisHistory;
+        }
+
+        // 如果配置关闭数据库兜底，则 Redis miss 时直接返回空历史。
+        // 这意味着系统会容忍 Redis 丢失短期记忆，但不会自动从数据库修复。
+        if (!chatMemoryConfig.isFallbackToDatabaseOnMiss()) {
+            return List.of();
+        }
+
+        // Redis 未命中时回退到数据库，再把完整历史回填 Redis，提升下一次命中率。
+        // 这一步是本方案的“读修复”机制：即使 Redis 写失败或过期，也能靠数据库自愈。
+        List<ChatMessage> databaseHistory = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        if (!databaseHistory.isEmpty()) {
+            chatMemoryService.rebuildSessionMemory(sessionId, databaseHistory);
+            log.info("Redis 短期记忆未命中，已回退数据库历史：sessionId={}, 条数={}", sessionId, databaseHistory.size());
+        }
+        return databaseHistory;
+    }
+
+    private List<ChatMessage> mergeHistoryWithMessage(List<ChatMessage> history, ChatMessage message) {
+        // 这个方法专门解决“当前请求已经落库，但 Redis 还在等待 after-commit”的时间窗口问题。
+        // 它只影响本次内存中的 Prompt 组装，不会反向修改 Redis 或数据库。
+        if (message == null) {
+            return history != null ? history : List.of();
+        }
+
+        List<ChatMessage> merged = new ArrayList<>(history != null ? history : List.of());
+        boolean alreadyExists = merged.stream().anyMatch(existing -> isSameMessage(existing, message));
+        if (!alreadyExists) {
+            merged.add(message);
+        }
+        merged.sort((left, right) -> {
+            if (left.getCreatedAt() == null && right.getCreatedAt() == null) {
+                return compareChatId(left, right);
+            }
+            if (left.getCreatedAt() == null) {
+                return 1;
+            }
+            if (right.getCreatedAt() == null) {
+                return -1;
+            }
+            int compareCreatedAt = left.getCreatedAt().compareTo(right.getCreatedAt());
+            return compareCreatedAt != 0 ? compareCreatedAt : compareChatId(left, right);
+        });
+        return merged;
+    }
+
+    private boolean isSameMessage(ChatMessage left, ChatMessage right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left.getChatId() != null && right.getChatId() != null) {
+            return left.getChatId().equals(right.getChatId());
+        }
+        return java.util.Objects.equals(left.getSessionId(), right.getSessionId())
+                && java.util.Objects.equals(left.getChatRole(), right.getChatRole())
+                && java.util.Objects.equals(left.getContent(), right.getContent())
+                && java.util.Objects.equals(left.getCreatedAt(), right.getCreatedAt());
+    }
+
+    private int compareChatId(ChatMessage left, ChatMessage right) {
+        long leftId = left.getChatId() == null ? Long.MAX_VALUE : left.getChatId();
+        long rightId = right.getChatId() == null ? Long.MAX_VALUE : right.getChatId();
+        return Long.compare(leftId, rightId);
+    }
+
+    private int resolveHistoryTokenLimit(String systemPrompt) {
+        int systemPromptTokens = 0;
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            // +4 为 system message 的包装开销预留一个粗略缓冲
+            systemPromptTokens = encoding.countTokens(systemPrompt) + 4;
+        }
+
+        // 总预算先扣除 system prompt，再把剩余额度分配给历史消息窗口
+        int availableHistoryTokens = chatMemoryConfig.getPromptTokenLimit() - systemPromptTokens;
+        // 通过最小值兜底，避免 system prompt 过长导致历史上下文完全丢失
+        int resolvedLimit = Math.max(chatMemoryConfig.getMinimumHistoryTokens(), availableHistoryTokens);
+        log.info("本次短期记忆 token 预算：promptLimit={}, systemPromptTokens≈{}, historyLimit={}",
+                chatMemoryConfig.getPromptTokenLimit(), systemPromptTokens, resolvedLimit);
+        return resolvedLimit;
+    }
+
+    private int estimateMessageTokens(ChatMessage msg) {
+        // 统一封装消息 token 估算逻辑，便于以后替换成更贴近目标模型的 tokenizer
+        String role = msg.getChatRole() != null ? msg.getChatRole() : "user";
+        String content = msg.getContent() != null ? msg.getContent() : "";
+        return Math.max(1, encoding.countTokens(role) + encoding.countTokens(content) + 4);
+    }
+
+    private Message toPromptMessage(ChatMessage historyMessage) {
+        if (historyMessage == null || historyMessage.getContent() == null || historyMessage.getContent().isBlank()) {
+            return null;
+        }
+
+        // 统一把数据库/Redis 中的聊天角色转换成 Spring AI 的 Prompt Message
+        String role = historyMessage.getChatRole() != null ? historyMessage.getChatRole().trim().toLowerCase() : "user";
+        return switch (role) {
+            case "assistant" -> new AssistantMessage(historyMessage.getContent());
+            case "system" -> new SystemMessage(historyMessage.getContent());
+            default -> new UserMessage(historyMessage.getContent());
+        };
     }
 
     /**

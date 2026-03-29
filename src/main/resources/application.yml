@@ -24,6 +24,13 @@ spring:
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:12345}
     driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      password: ${REDIS_PASSWORD:12345}  # Redis 密码，默认为空
+      timeout: 2s
   jpa:
     hibernate:
       ddl-auto: validate
@@ -96,3 +103,13 @@ app:
       connect-timeout: 120000
       read-timeout: 600000
       keep-alive: true
+  chat:
+    prompt:
+      default-system-prompt-location: ${CHAT_DEFAULT_SYSTEM_PROMPT_LOCATION:classpath:prompts/default-system-prompt.txt}
+    memory:
+      prompt-token-limit: ${CHAT_MEMORY_PROMPT_TOKEN_LIMIT:4000}
+      minimum-history-tokens: ${CHAT_MEMORY_MIN_HISTORY_TOKENS:256}
+      redis-ttl-minutes: ${CHAT_MEMORY_REDIS_TTL_MINUTES:30}
+      redis-key-prefix: ${CHAT_MEMORY_REDIS_KEY_PREFIX:chat:memory:}
+      fallback-to-database-on-miss: ${CHAT_MEMORY_FALLBACK_TO_DB:true}
+      rebuild-lock-seconds: ${CHAT_MEMORY_REBUILD_LOCK_SECONDS:15}

@@ -1,4 +1,4 @@
-package com.honghu.ut.test.ai.assigment.testdeepseekr1;
+package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import okhttp3.*;
 

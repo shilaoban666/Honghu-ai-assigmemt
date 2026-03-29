@@ -1,5 +1,7 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
@@ -12,6 +14,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,18 +35,27 @@ class ChatServiceRoutingTest {
     private UserRepository userRepository;
     @Mock
     private AiTaskKeywordService aiTaskKeywordService;
+    @Mock
+    private ChatMemoryService chatMemoryService;
+    @Mock
+    private DefaultSystemPromptProvider defaultSystemPromptProvider;
 
     private ChatService chatService;
 
     @BeforeEach
     void setUp() {
+        ChatMemoryConfig chatMemoryConfig = new ChatMemoryConfig();
+        when(defaultSystemPromptProvider.getPrompt()).thenReturn("默认系统提示词");
         chatService = new ChatService(
                 ollamaChatModel,
                 chatClientBuilder,
                 chatSessionRepository,
                 chatMessageRepository,
                 userRepository,
-                aiTaskKeywordService
+                aiTaskKeywordService,
+                chatMemoryService,
+                chatMemoryConfig,
+                defaultSystemPromptProvider
         );
     }
 
@@ -106,6 +118,81 @@ class ChatServiceRoutingTest {
         );
 
         assertThat(routedModel).isEqualTo("deepseek-r1:32b");
+    }
+
+    @Test
+    void shouldUseInjectedDefaultSystemPromptWhenRequestPromptMissing() {
+        String resolvedPrompt = ReflectionTestUtils.invokeMethod(
+                chatService,
+                "resolveSystemPrompt",
+                (String) null
+        );
+
+        assertThat(resolvedPrompt).isEqualTo("默认系统提示词");
+    }
+
+    @Test
+    void shouldStopTracingOlderMessagesImmediatelyWhenTokenLimitReached() {
+        List<ChatMessage> history = List.of(
+                ChatMessage.builder().chatRole("user").content("old").build(),
+                ChatMessage.builder().chatRole("assistant").content("very long message ".repeat(100)).build(),
+                ChatMessage.builder().chatRole("user").content("latest").build()
+        );
+
+        List<ChatMessage> selected = ReflectionTestUtils.invokeMethod(
+                chatService,
+                "selectHistoryMessagesByTokenLimit",
+                history,
+                20
+        );
+
+        assertThat(selected)
+                .extracting(ChatMessage::getContent)
+                .containsExactly("latest");
+    }
+
+    @Test
+    void shouldKeepLatestMessageWhenSingleMessageAlreadyExceedsLimit() {
+        List<ChatMessage> history = List.of(
+                ChatMessage.builder().chatRole("user").content("oversized ".repeat(200)).build()
+        );
+
+        List<ChatMessage> selected = ReflectionTestUtils.invokeMethod(
+                chatService,
+                "selectHistoryMessagesByTokenLimit",
+                history,
+                10
+        );
+
+        assertThat(selected)
+                .hasSize(1)
+                .extracting(ChatMessage::getContent)
+                .containsExactly("oversized ".repeat(200));
+    }
+
+    @Test
+    void shouldMergeCurrentUserMessageIntoHistoryWhenRedisNotYetUpdated() {
+        ChatMessage existingAssistant = ChatMessage.builder()
+                .chatId(10L)
+                .chatRole("assistant")
+                .content("上一轮回复")
+                .build();
+        ChatMessage currentUser = ChatMessage.builder()
+                .chatId(11L)
+                .chatRole("user")
+                .content("当前问题")
+                .build();
+
+        List<ChatMessage> merged = ReflectionTestUtils.invokeMethod(
+                chatService,
+                "mergeHistoryWithMessage",
+                List.of(existingAssistant),
+                currentUser
+        );
+
+        assertThat(merged)
+                .extracting(ChatMessage::getContent)
+                .containsExactly("上一轮回复", "当前问题");
     }
 }
 
