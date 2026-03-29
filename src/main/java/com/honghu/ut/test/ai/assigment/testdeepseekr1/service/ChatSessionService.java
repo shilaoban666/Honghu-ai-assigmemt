@@ -27,6 +27,7 @@ public class  ChatSessionService {
 
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
+    private final ChatMemoryService chatMemoryService;
 
     /**
      * 获取指定用户的所有聊天会话
@@ -70,7 +71,14 @@ public class  ChatSessionService {
     /**
      * 删除聊天会话及其所有消息
      * <p>
-     * 该方法会先删除会话下的所有消息，再删除会话本身
+     * 该方法会先删除会话下的所有消息，再删除会话本身。
+     *
+     * <p>一致性说明：</p>
+     * <ul>
+     *     <li>数据库删除是主动作，Redis 只是短期记忆缓存</li>
+     *     <li>因此先完成数据库删除，再在事务提交后清理 Redis</li>
+     *     <li>这样可以避免“数据库回滚，但缓存已被提前删除”的不一致问题</li>
+     * </ul>
      * </p>
      *
      * @param sessionId 会话 ID
@@ -93,6 +101,8 @@ public class  ChatSessionService {
         
         // 再删除会话本身
         chatSessionRepository.deleteById(sessionId);
+        // 事务提交后再清理 Redis，避免数据库删除失败回滚但缓存被提前删掉
+        chatMemoryService.clearSessionMemoryAfterCommit(sessionId);
         log.info("会话 {} 已成功删除", sessionId);
     }
 
