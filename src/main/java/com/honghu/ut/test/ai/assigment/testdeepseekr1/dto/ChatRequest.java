@@ -37,7 +37,7 @@ public class ChatRequest {
     @Schema(description = "是否启用流式输出", example = "false")
     private Boolean stream = false;
 
-    @Schema(description = "系统提示词", example = "你是一个 helpful 的 AI 助手")
+    @Schema(description = "系统提示词", example = "你是一个专业、清晰、可靠的 AI 助手，默认使用中文回答。")
     private String systemMessage;
 
     @DecimalMin("0.0") @DecimalMax("2.0")
