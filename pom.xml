@@ -109,6 +109,14 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
+
+        <!-- JTokkit，用于按 token 估算上下文窗口 -->
+        <dependency>
+            <groupId>com.knuddels</groupId>
+            <artifactId>jtokkit</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+
         <!-- Spring Boot AOP Starter (for @Transactional) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
