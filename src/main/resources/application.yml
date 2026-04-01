@@ -29,8 +29,10 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
-      password: ${REDIS_PASSWORD:12345}  # Redis 密码，默认为空
+      password: ${REDIS_PASSWORD:12345}
       timeout: 2s
+      repositories:
+        enabled: false
   jpa:
     hibernate:
       ddl-auto: validate
@@ -103,13 +105,87 @@ app:
       connect-timeout: 120000
       read-timeout: 600000
       keep-alive: true
+
+  # =========================
+  # 聊天提示词与流式日志配置
+  # - 默认系统提示词从 resources/prompts 中读取
+  # - 启动时一次性加载到内存，运行期直接复用
+  # - streaming.log 用于控制流式输出调试日志
+  # =========================
   chat:
+    streaming:
+      log:
+        enabled: ${CHAT_STREAMING_LOG_ENABLED:true}
+
     prompt:
+      # ---- 全局默认系统提示词 ----
       default-system-prompt-location: ${CHAT_DEFAULT_SYSTEM_PROMPT_LOCATION:classpath:prompts/default-system-prompt.txt}
+
+      # ---- 不同任务类型的默认系统提示词 ----
+      task-type-prompt-locations:
+        CODE: ${CHAT_TASK_TYPE_PROMPT_CODE:classpath:prompts/tasks/code-system-prompt.txt}
+        DESIGN: ${CHAT_TASK_TYPE_PROMPT_DESIGN:classpath:prompts/tasks/design-system-prompt.txt}
+        TEXT: ${CHAT_TASK_TYPE_PROMPT_TEXT:classpath:prompts/tasks/text-system-prompt.txt}
+        DATA_PROCESSING: ${CHAT_TASK_TYPE_PROMPT_DATA_PROCESSING:classpath:prompts/tasks/data-processing-system-prompt.txt}
+        ANALYSIS: ${CHAT_TASK_TYPE_PROMPT_ANALYSIS:classpath:prompts/tasks/analysis-system-prompt.txt}
+
+      # ---- 第二层中期记忆：摘要模型提示词模板 ----
+      session-summary-system-prompt-location: ${CHAT_SESSION_SUMMARY_SYSTEM_PROMPT_LOCATION:classpath:prompts/summary/session-summary-system-prompt.txt}
+      user-profile-system-prompt-location: ${CHAT_USER_PROFILE_SYSTEM_PROMPT_LOCATION:classpath:prompts/summary/user-profile-system-prompt.txt}
+      session-summary-wrapper-prompt-location: ${CHAT_SESSION_SUMMARY_WRAPPER_PROMPT_LOCATION:classpath:prompts/summary/session-summary-wrapper.txt}
+      user-profile-wrapper-prompt-location: ${CHAT_USER_PROFILE_WRAPPER_PROMPT_LOCATION:classpath:prompts/summary/user-profile-wrapper.txt}
+      session-update-user-prompt-location: ${CHAT_SESSION_UPDATE_USER_PROMPT_LOCATION:classpath:prompts/summary/session-update-user-prompt.txt}
+      session-existing-summary-block-prompt-location: ${CHAT_SESSION_EXISTING_SUMMARY_BLOCK_PROMPT_LOCATION:classpath:prompts/summary/session-existing-summary-block.txt}
+      session-merge-user-prompt-location: ${CHAT_SESSION_MERGE_USER_PROMPT_LOCATION:classpath:prompts/summary/session-merge-user-prompt.txt}
+      session-chunk-item-prompt-location: ${CHAT_SESSION_CHUNK_ITEM_PROMPT_LOCATION:classpath:prompts/summary/session-chunk-item.txt}
+      user-profile-aggregation-user-prompt-location: ${CHAT_USER_PROFILE_AGGREGATION_USER_PROMPT_LOCATION:classpath:prompts/summary/user-profile-aggregation-user-prompt.txt}
+      user-profile-session-item-prompt-location: ${CHAT_USER_PROFILE_SESSION_ITEM_PROMPT_LOCATION:classpath:prompts/summary/user-profile-session-item.txt}
+
+    # =========================
+    # 第一层 + 第二层记忆配置
+    # 第一层：Redis 短期记忆滑动窗口
+    # 第二层：摘要压缩后的会话中期记忆 + 用户主体画像
+    # =========================
     memory:
+      # ---- 第一层短期记忆：Prompt Token 预算 ----
       prompt-token-limit: ${CHAT_MEMORY_PROMPT_TOKEN_LIMIT:4000}
       minimum-history-tokens: ${CHAT_MEMORY_MIN_HISTORY_TOKENS:256}
+
+      # ---- 第一层短期记忆：Redis 工作集与回源修复 ----
       redis-ttl-minutes: ${CHAT_MEMORY_REDIS_TTL_MINUTES:30}
       redis-key-prefix: ${CHAT_MEMORY_REDIS_KEY_PREFIX:chat:memory:}
       fallback-to-database-on-miss: ${CHAT_MEMORY_FALLBACK_TO_DB:true}
       rebuild-lock-seconds: ${CHAT_MEMORY_REBUILD_LOCK_SECONDS:15}
+
+      # ---- 第二层中期记忆：触发条件与摘要模型 ----
+      summary-trigger-rounds: ${CHAT_MEMORY_SUMMARY_TRIGGER_ROUNDS:20}
+      summary-model: ${CHAT_MEMORY_SUMMARY_MODEL:deepseek-r1:8b}
+      summary-temperature: ${CHAT_MEMORY_SUMMARY_TEMPERATURE:0.2}
+      summary-max-tokens: ${CHAT_MEMORY_SUMMARY_MAX_TOKENS:512}
+      summary-max-characters: ${CHAT_MEMORY_SUMMARY_MAX_CHARACTERS:300}
+      summary-context-token-limit: ${CHAT_MEMORY_SUMMARY_CONTEXT_TOKEN_LIMIT:4000}
+
+      # ---- 第二层中期记忆：Redis 摘要缓存与并发控制 ----
+      session-summary-redis-key-prefix: ${CHAT_MEMORY_SESSION_SUMMARY_REDIS_KEY_PREFIX:chat:summary:session:}
+      user-profile-redis-key-prefix: ${CHAT_MEMORY_USER_PROFILE_REDIS_KEY_PREFIX:chat:summary:user:}
+      summary-redis-ttl-hours: ${CHAT_MEMORY_SUMMARY_REDIS_TTL_HOURS:720}
+      summary-lock-seconds: ${CHAT_MEMORY_SUMMARY_LOCK_SECONDS:60}
+
+      # ---- 第二层中期记忆：执行模式与用户画像窗口 ----
+      summary-async-enabled: ${CHAT_MEMORY_SUMMARY_ASYNC_ENABLED:true}
+      user-profile-session-window: ${CHAT_MEMORY_USER_PROFILE_SESSION_WINDOW:10}
+
+  # =========================
+  # 中期记忆异步线程池配置
+  # - 专门服务于摘要压缩与用户画像聚合
+  # - 避免与 Web 请求线程池相互争抢资源
+  # =========================
+  async:
+    memory-summary:
+      thread-name-prefix: ${MEMORY_SUMMARY_ASYNC_THREAD_NAME_PREFIX:memory-summary-}
+      core-pool-size: ${MEMORY_SUMMARY_ASYNC_CORE_POOL_SIZE:2}
+      max-pool-size: ${MEMORY_SUMMARY_ASYNC_MAX_POOL_SIZE:4}
+      queue-capacity: ${MEMORY_SUMMARY_ASYNC_QUEUE_CAPACITY:200}
+      wait-for-tasks-to-complete-on-shutdown: ${MEMORY_SUMMARY_ASYNC_WAIT_ON_SHUTDOWN:true}
+      await-termination-seconds: ${MEMORY_SUMMARY_ASYNC_AWAIT_TERMINATION_SECONDS:10}
+

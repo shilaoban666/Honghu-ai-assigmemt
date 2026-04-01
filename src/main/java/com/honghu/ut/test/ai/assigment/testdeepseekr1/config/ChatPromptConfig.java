@@ -1,18 +1,15 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.config;
 
 import lombok.Data;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.context.annotation.Configuration;
 
 /**
- * Chat 默认系统提示词配置。
+ * 旧版聊天提示词配置兼容类。
  *
- * <p>用于声明默认 system prompt 所在的资源位置，
- * 让提示词内容可以独立存放在 resources 目录中，避免硬编码到业务代码。</p>
+ * <p>当前项目已统一改为使用 {@link com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.ChatPromptProperties}
+ * 管理所有提示词模板路径。保留本类仅用于兼容历史代码引用，避免切分支时出现大面积编译冲突。</p>
  */
+@Deprecated
 @Data
-@Configuration
-@ConfigurationProperties(prefix = "app.chat.prompt")
 public class ChatPromptConfig {
 
     /**

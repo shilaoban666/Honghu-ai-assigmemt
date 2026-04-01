@@ -1,6 +1,7 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.repository;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
@@ -15,5 +16,10 @@ public interface ChatSessionRepository extends JpaRepository<ChatSession, String
      * @return 按创建时间倒序排列的会话列表
      */
     List<ChatSession> findByUserIdOrderByCreatedAtDesc(String userId);
+
+    /**
+     * 按创建时间倒序获取用户最近若干个会话。
+     */
+    List<ChatSession> findByUserIdOrderByCreatedAtDesc(String userId, Pageable pageable);
 }
 
