@@ -1,6 +1,7 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.DefaultSystemPromptProvider;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
@@ -15,8 +16,6 @@ import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
-import java.util.Optional;
-
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
 
@@ -38,14 +37,17 @@ class ChatServiceRoutingTest {
     @Mock
     private ChatMemoryService chatMemoryService;
     @Mock
+    private ChatMemoryConfig chatMemoryConfig;
+    @Mock
     private DefaultSystemPromptProvider defaultSystemPromptProvider;
+    @Mock
+    private ChatSummaryService chatSummaryService;
 
     private ChatService chatService;
 
     @BeforeEach
     void setUp() {
         ChatMemoryConfig chatMemoryConfig = new ChatMemoryConfig();
-        when(defaultSystemPromptProvider.getPrompt()).thenReturn("默认系统提示词");
         chatService = new ChatService(
                 ollamaChatModel,
                 chatClientBuilder,
@@ -55,7 +57,8 @@ class ChatServiceRoutingTest {
                 aiTaskKeywordService,
                 chatMemoryService,
                 chatMemoryConfig,
-                defaultSystemPromptProvider
+                defaultSystemPromptProvider,
+                chatSummaryService
         );
     }
 
@@ -65,7 +68,8 @@ class ChatServiceRoutingTest {
                 chatService,
                 "routeModelByQuestionLength",
                 "请帮我分析一下这段代码",
-                "custom-model"
+                "custom-model",
+                null
         );
 
         assertThat(routedModel).isEqualTo("custom-model");
@@ -73,16 +77,14 @@ class ChatServiceRoutingTest {
 
     @Test
     void shouldRouteToComplexModelWhenComplexTaskKeywordMatched() {
-        when(aiTaskKeywordService.findFirstMatch("请帮我重构这段代码")).thenReturn(
-                Optional.of(new AiTaskKeywordService.TaskKeywordMatch(AiTaskKeywordService.TASK_TYPE_CODE, "重构"))
-        );
-        when(aiTaskKeywordService.isComplexTaskType(AiTaskKeywordService.TASK_TYPE_CODE)).thenReturn(true);
+        org.mockito.Mockito.when(aiTaskKeywordService.isComplexTaskType(AiTaskKeywordService.TASK_TYPE_CODE)).thenReturn(true);
 
         String routedModel = ReflectionTestUtils.invokeMethod(
                 chatService,
                 "routeModelByQuestionLength",
                 "请帮我重构这段代码",
-                null
+                null,
+                new AiTaskKeywordService.TaskKeywordMatch(AiTaskKeywordService.TASK_TYPE_CODE, "重构")
         );
 
         assertThat(routedModel).isEqualTo("deepseek-r1:32b");
@@ -90,16 +92,14 @@ class ChatServiceRoutingTest {
 
     @Test
     void shouldKeepShortTextTaskOnSimpleModelWhenMatchedTypeIsText() {
-        when(aiTaskKeywordService.findFirstMatch("帮我润色")).thenReturn(
-                Optional.of(new AiTaskKeywordService.TaskKeywordMatch(AiTaskKeywordService.TASK_TYPE_TEXT, "润色"))
-        );
-        when(aiTaskKeywordService.isComplexTaskType(AiTaskKeywordService.TASK_TYPE_TEXT)).thenReturn(false);
+        org.mockito.Mockito.when(aiTaskKeywordService.isComplexTaskType(AiTaskKeywordService.TASK_TYPE_TEXT)).thenReturn(false);
 
         String routedModel = ReflectionTestUtils.invokeMethod(
                 chatService,
                 "routeModelByQuestionLength",
                 "帮我润色",
-                null
+                null,
+                new AiTaskKeywordService.TaskKeywordMatch(AiTaskKeywordService.TASK_TYPE_TEXT, "润色")
         );
 
         assertThat(routedModel).isEqualTo("deepseek-r1:8b");
@@ -108,12 +108,12 @@ class ChatServiceRoutingTest {
     @Test
     void shouldFallbackToLengthRuleWhenNoKeywordMatched() {
         String longQuestion = "请详细说明在 Spring Boot 项目中如何设计一个支持会话记忆和流式输出的聊天服务";
-        when(aiTaskKeywordService.findFirstMatch(longQuestion)).thenReturn(Optional.empty());
 
         String routedModel = ReflectionTestUtils.invokeMethod(
                 chatService,
                 "routeModelByQuestionLength",
                 longQuestion,
+                null,
                 null
         );
 
@@ -122,13 +122,30 @@ class ChatServiceRoutingTest {
 
     @Test
     void shouldUseInjectedDefaultSystemPromptWhenRequestPromptMissing() {
+        when(defaultSystemPromptProvider.getPrompt()).thenReturn("默认系统提示词");
+
         String resolvedPrompt = ReflectionTestUtils.invokeMethod(
                 chatService,
                 "resolveSystemPrompt",
-                (String) null
+                null,
+                null
         );
 
         assertThat(resolvedPrompt).isEqualTo("默认系统提示词");
+    }
+
+    @Test
+    void shouldUseTaskTypePromptWhenMatchedAndRequestPromptMissing() {
+        when(defaultSystemPromptProvider.getPromptByTaskType(AiTaskKeywordService.TASK_TYPE_CODE)).thenReturn("代码任务提示词");
+
+        String resolvedPrompt = ReflectionTestUtils.invokeMethod(
+                chatService,
+                "resolveSystemPrompt",
+                null,
+                new AiTaskKeywordService.TaskKeywordMatch(AiTaskKeywordService.TASK_TYPE_CODE, "重构")
+        );
+
+        assertThat(resolvedPrompt).isEqualTo("代码任务提示词");
     }
 
     @Test

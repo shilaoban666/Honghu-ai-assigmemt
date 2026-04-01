@@ -14,10 +14,12 @@ import com.knuddels.jtokkit.Encodings;
 import com.knuddels.jtokkit.api.Encoding;
 import com.knuddels.jtokkit.api.EncodingRegistry;
 import com.knuddels.jtokkit.api.EncodingType;
+import jakarta.transaction.Transactional;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.SimpleLoggerAdvisor;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -29,7 +31,7 @@ import org.springframework.ai.chat.prompt.SystemPromptTemplate;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+// import org.springframework.transaction.annotation.Transactional;  // 暂时注释，解决编译问题
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -58,11 +60,12 @@ public class ChatService {
     private final ChatMemoryService chatMemoryService;
     private final ChatMemoryConfig chatMemoryConfig;
     private final DefaultSystemPromptProvider defaultSystemPromptProvider;
+    private final ChatSummaryService chatSummaryService;
 
     // 流式响应日志配置（可通过 YAML 控制）
     // 在 application.yml 中设置：chat.streaming.log.enabled=true 开启详细日志
-    // @Value("${chat.streaming.log.enabled:false}")
-    private boolean streamingLogEnabled = true;  // 临时设置为 true，后期可通过 YAML 配置
+    @Value("${app.chat.streaming.log.enabled:true}")
+    private boolean streamingLogEnabled;
     // 重试配置
     private static final int MAX_RETRIES = 3;
     private static final long RETRY_DELAY_MS = 2000;
@@ -73,7 +76,7 @@ public class ChatService {
     // 如需 DeepSeek 精确统计，应以 Ollama 返回的 tokenUsage 为准
     private static final EncodingRegistry registry = Encodings.newDefaultEncodingRegistry();
     private static final Encoding encoding = registry.getEncoding(EncodingType.CL100K_BASE);
-    
+
     // 模型路由配置
     // 简单指令/闲聊阈值：问题长度小于此值使用 8B 模型（常驻 CPU）
     private static final int SIMPLE_QUERY_LENGTH_THRESHOLD = 20;
@@ -98,9 +101,11 @@ public class ChatService {
     private ChatResponse simpleChatWithRetry(String message, int remainingRetries) {
         try {
             log.info("开始处理简单聊天请求: {} (剩余重试次数: {})", message, remainingRetries);
-            
+            AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(message).orElse(null);
+            String systemPrompt = resolveSystemPrompt(null, taskKeywordMatch);
+
             var response = chatClientBuilder.build()
-                    .prompt()
+                    .prompt(systemPrompt)
                     .user(message)
                     .call()
                     .chatResponse();
@@ -162,16 +167,15 @@ public class ChatService {
      */
     private ChatResponse structuredChatWithRetry(ChatRequest request, int remainingRetries) {
         try {
-
-
-
-            String routedModel = routeModelByQuestionLength(request.getMessage(), request.getModel());
+            AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(request.getMessage()).orElse(null);
+            String routedModel = routeModelByQuestionLength(request.getMessage(), request.getModel(), taskKeywordMatch);
             request.setModel(routedModel);
             // 记录请求日志，便于监控和调试
             log.info("开始处理结构化聊天请求: {} (剩余重试次数: {})", request, remainingRetries);
-            // 构建系统提示词：如果客户端未提供，则回退到 resources/prompts 中的默认提示词。
-            // 默认提示词由 DefaultSystemPromptProvider 在应用启动时一次性加载并缓存，避免每次请求重复读取文件。
-            String systemPrompt = resolveSystemPrompt(request.getSystemMessage());
+            // 系统提示词在任务分类阶段就确定：
+            // request.systemMessage > taskType 对应默认提示词 > 全局默认提示词。
+            // 这样提示词选择与后续模型路由解耦，不会出现“根据最终模型反推 prompt”的耦合问题。
+            String systemPrompt = resolveSystemPrompt(request.getSystemMessage(), taskKeywordMatch);
 
             // 构建模型选项配置
             // temperature: 控制生成文本的随机性，0.0表示最确定性，1.0表示最随机
@@ -243,6 +247,7 @@ public class ChatService {
      * @param request 聊天请求配置
      * @return 包含 ChatResponse 的 Flux 流
      */
+    @Transactional
     public Flux<ChatResponse> structuredStreamChat(@Valid ChatRequest request) {
         return structuredStreamChatWithPersistence(request);
     }
@@ -262,7 +267,9 @@ public class ChatService {
      * @return 包含 ChatResponse 的 Flux 流
      */
     @NotNull
-    @Transactional  // 事务注解，确保会话创建和消息保存的原子性
+    // 这里由对外公开入口 structuredStreamChat 开启事务；
+    // 这样 controller 调用 public 方法时，Spring 事务代理才能真正生效，
+    // 避免“本类内部 self-invocation 导致 @Transactional 失效”。
     public Flux<ChatResponse> structuredStreamChatWithPersistence(ChatRequest request) {
 
 
@@ -273,7 +280,8 @@ public class ChatService {
         String originalModel = request.getModel();
         String messageContent = request.getMessage() != null ? request.getMessage() : "";
         
-        String routedModel = routeModelByQuestionLength(messageContent, originalModel);
+        AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(messageContent).orElse(null);
+        String routedModel = routeModelByQuestionLength(messageContent, originalModel, taskKeywordMatch);
         request.setModel(routedModel);
         
         // 仅在发生模型切换或自动选择时记录 Info 日志
@@ -346,17 +354,21 @@ public class ChatService {
         // 否则本轮请求在事务提交前读取 Redis 时，可能看不到刚保存的 userMsg。
         history = mergeHistoryWithMessage(history, userMsg);
         // 这里先统一解析 system prompt，后面 token 预算计算和 Prompt 组装都必须基于同一份最终提示词。
-        String systemPrompt = resolveSystemPrompt(request.getSystemMessage());
+        String systemPrompt = resolveSystemPrompt(request.getSystemMessage(), taskKeywordMatch);
+        // 第二层中期记忆：优先从 Redis 读取“用户主体画像 + 当前会话摘要”两个高浓度 SystemMessage。
+        // 这里先只读，不立即触发后台压缩。
+        // 原因：本轮请求稍后还会落库 assistant 消息，如果现在就触发一次、完成后再触发一次，会造成重复摘要计算。
+        List<String> memorySystemPrompts = chatSummaryService.getMemorySystemPrompts(finalSessionId, userId);
         // 根据 system prompt 长度动态计算本次还能留给历史消息多少 token 预算
-        int historyTokenLimit = resolveHistoryTokenLimit(systemPrompt);
+        int historyTokenLimit = resolveHistoryTokenLimit(systemPrompt, memorySystemPrompts);
         // 从新到旧累计 token，达到阈值立刻停止，拿到最近一段连续上下文
         List<ChatMessage> selectedHistory = selectHistoryMessagesByTokenLimit(history, historyTokenLimit);
 
 
         // 步骤 4: 执行流式聊天并保存 AI 回复
         // 使用带历史记录和重试机制的流式聊天方法
-        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, selectedHistory, MAX_RETRIES);
-        
+        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, systemPrompt, selectedHistory, memorySystemPrompts, MAX_RETRIES);
+
         // 异步保存 AI 响应到数据库（不阻塞流式传输）
         StringBuilder fullContent = new StringBuilder();
         
@@ -380,7 +392,9 @@ public class ChatService {
                     assistantMsg = chatMessageRepository.save(assistantMsg);  // 保存 AI 消息到数据库
                     // assistant 消息同样走“提交后同步 Redis”，避免出现库回滚而缓存先可见
                     chatMemoryService.appendMessageAfterCommit(assistantMsg);
-                    log.info("AI 响应已保存到数据库，会话 ID={}, 消息长度={}", 
+                    // 第二层中期记忆异步压缩：不阻塞当前流式响应，只在消息完整落库后后台刷新摘要/画像。
+                    chatSummaryService.triggerRefreshSessionSummaryAsync(finalSessionId, chatUser.getUserId());
+                    log.info("AI 响应已保存到数据库，会话 ID={}, 消息长度={}",
                             finalSessionId, fullContent.length());
                 })
                 // 在发生错误时记录日志
@@ -389,13 +403,17 @@ public class ChatService {
                 });
     }
 
-    private Flux<ChatResponse> structuredStreamChatWithRetryAndHistory(ChatRequest request, List<ChatMessage> history, int remainingRetries) {
+    private Flux<ChatResponse> structuredStreamChatWithRetryAndHistory(
+            ChatRequest request,
+            String resolvedSystemPrompt,
+            List<ChatMessage> history,
+            List<String> memorySystemPrompts,
+            int remainingRetries) {
         return Flux.defer(() -> {
             log.info("开始处理带历史记录的结构化流式聊天请求：{} (剩余重试次数：{})", request, remainingRetries);
 
-            // 这里继续复用同样的默认提示词解析逻辑，确保流式与非流式接口行为一致。
-            String systemPrompt = resolveSystemPrompt(request.getSystemMessage());
-
+            // 这里直接复用调用入口已经确定好的最终 system prompt，
+            // 避免重试时再次根据模型或其他后续逻辑重新推导提示词。
             OllamaOptions options = OllamaOptions.create()
                     .withModel(request.getModel())
                     .withTemperature(request.getTemperature())
@@ -403,7 +421,15 @@ public class ChatService {
 
             // Prompt 的第一条始终是系统角色定义，用于约束模型行为
             List<Message> messages = new ArrayList<>();
-            messages.add(new SystemMessage(systemPrompt));
+            messages.add(new SystemMessage(resolvedSystemPrompt));
+
+            // 第二层中期记忆摘要作为额外的 SystemMessage 注入。
+            // 顺序上先用户主体画像，后当前 session 摘要，再拼接短期历史，既保留长期偏好，也保留当前会话浓缩上下文。
+            for (String memorySystemPrompt : memorySystemPrompts) {
+                if (memorySystemPrompt != null && !memorySystemPrompt.isBlank()) {
+                    messages.add(new SystemMessage(memorySystemPrompt));
+                }
+            }
 
             // 把筛选后的历史消息按原顺序拼回 Prompt，形成完整上下文
             for (ChatMessage historyMessage : history) {
@@ -415,9 +441,10 @@ public class ChatService {
 
 
             Prompt prompt = new Prompt(messages, options);
-            log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, historyMessages={}",
+            log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, memorySystemMessages={}, historyMessages={}",
                     request.getSessionId(),
-                    systemPrompt != null ? encoding.countTokens(systemPrompt) : 0,
+                    encoding.countTokens(resolvedSystemPrompt),
+                    memorySystemPrompts.size(),
                     history.size());
 
             // 使用流式响应日志记录器（可配置）
@@ -427,7 +454,7 @@ public class ChatService {
             log.warn("结构化流式聊天处理失败 (剩余重试次数：{}): {}", remainingRetries, e.getMessage());
             if (isConnectionException((Exception) e) && remainingRetries > 0) {
                 return Mono.delay(Duration.ofMillis(RETRY_DELAY_MS))
-                        .thenMany(structuredStreamChatWithRetryAndHistory(request, history, remainingRetries - 1));
+                        .thenMany(structuredStreamChatWithRetryAndHistory(request, resolvedSystemPrompt, history, memorySystemPrompts, remainingRetries - 1));
             }
             return Flux.error(new RuntimeException("聊天服务暂时不可用：" + e.getMessage(), e));
         });
@@ -450,38 +477,24 @@ public class ChatService {
      * @return 流式响应字符串
      */
     private Flux<String> streamChatWithRetry(String message, int remainingRetries) {
-        try {
+        return Flux.defer(() -> {
             log.info("开始处理简单聊天请求: {} (剩余重试次数: {})", message, remainingRetries);
             // 简单流式聊天没有 request 对象，因此直接使用缓存后的默认 system prompt。
-            String systemPrompt = resolveSystemPrompt(null);
-            //
-            Flux<String> content = chatClientBuilder.build()
+            AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(message).orElse(null);
+            String systemPrompt = resolveSystemPrompt(null, taskKeywordMatch);
+            return chatClientBuilder.build()
                     .prompt(systemPrompt)
                     .advisors(new SimpleLoggerAdvisor()).user(message)
                     .stream()
                     .content();
-
-            return content;
-        } catch (Exception e) {
-            log.warn("简单聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
-//
-//            // 检查是否是连接相关异常
-//            if (isConnectionException(e) && remainingRetries > 0) {
-//                log.info("检测到连接异常，{}毫秒后进行第{}次重试", RETRY_DELAY_MS, MAX_RETRIES - remainingRetries + 1);
-//                try {
-//                    Thread.sleep( );
-//                } catch (InterruptedException ie) {
-//                    Thread.currentThread().interrupt();
-//                    return Flux<String>.error("重试被中断: " + ie.getMessage());
-//                }
-//                return simpleChatWithRetry(message, remainingRetries - 1);
-//            }
-//
-//            log.error("简单聊天处理最终失败", e);
-            throw new RuntimeException("聊天服务暂时不可用: " + e.getMessage());
-//            return Flux<String>.error("聊天服务暂时不可用: " + e.getMessage());
-//            return ChatResponse.error("聊天服务暂时不可用: " + e.getMessage());
-        }
+        }).onErrorResume(e -> {
+            log.warn("简单流式聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
+            if (e instanceof Exception exception && isConnectionException(exception) && remainingRetries > 0) {
+                return Mono.delay(Duration.ofMillis(RETRY_DELAY_MS))
+                        .thenMany(streamChatWithRetry(message, remainingRetries - 1));
+            }
+            return Flux.error(new RuntimeException("聊天服务暂时不可用: " + e.getMessage(), e));
+        });
     }
 
     /**
@@ -513,11 +526,24 @@ public class ChatService {
      *
      * <p>这样可以确保默认提示词只在应用启动时读取一次，运行期不会反复访问磁盘。</p>
      */
-    private String resolveSystemPrompt(String requestSystemPrompt) {
+    private String resolveSystemPrompt(String requestSystemPrompt, AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch) {
         if (requestSystemPrompt != null && !requestSystemPrompt.isBlank()) {
             return requestSystemPrompt;
         }
+        if (taskKeywordMatch != null) {
+            String taskPrompt = defaultSystemPromptProvider.getPromptByTaskType(taskKeywordMatch.taskType());
+            if (taskPrompt != null && !taskPrompt.isBlank()) {
+                return taskPrompt;
+            }
+        }
         return defaultSystemPromptProvider.getPrompt();
+    }
+
+    private java.util.Optional<AiTaskKeywordService.TaskKeywordMatch> resolveTaskKeywordMatch(String question) {
+        if (question == null || question.isBlank()) {
+            return java.util.Optional.empty();
+        }
+        return aiTaskKeywordService.findFirstMatch(question);
     }
 
     /**
@@ -558,7 +584,7 @@ public class ChatService {
             // 计算当前消息的 token 数（估算值）
             // role 也会参与估算，避免只按 content 计算而低估上下文长度
             int messageTokens = estimateMessageTokens(msg);
-            
+
             // 4: 一旦达到 token 上限，立刻停止继续向前追溯
             //    这里不是“跳过当前长消息继续找更老消息”，而是直接停下：
             //    目的是保留最近的一段连续上下文，而不是把上下文切成碎片
@@ -578,13 +604,13 @@ public class ChatService {
                 }
                 break;
             }
-            
+
             // 这条消息仍在预算内，纳入本次 Prompt 的短期记忆窗口
             selected.add(msg);
             totalTokens += messageTokens;
             
             if (debugEnabled) {
-                log.debug("添加历史消息：角色={}, token 数={}, 累计 token={}", 
+                log.debug("添加历史消息：角色={}, token 数={}, 累计 token={}",
                          msg.getChatRole(), messageTokens, totalTokens);
             }
         }
@@ -596,8 +622,8 @@ public class ChatService {
         }
 
         // 记录筛选统计信息
-        if (skippedCount > 0 || selected.size() > 0) {
-            log.info("历史消息 token 筛选完成：原始总数={}, 选中={}, 跳过={}, 估算总 token 数={}/{}", 
+        if (skippedCount > 0 || !selected.isEmpty()) {
+            log.info("历史消息 token 筛选完成：原始总数={}, 选中={}, 跳过={}, 估算总 token 数={}/{}",
                     history.size(), selected.size(), skippedCount, totalTokens, maxTokens);
         }
         
@@ -675,19 +701,28 @@ public class ChatService {
         return Long.compare(leftId, rightId);
     }
 
-    private int resolveHistoryTokenLimit(String systemPrompt) {
+    private int resolveHistoryTokenLimit(String systemPrompt, List<String> memorySystemPrompts) {
         int systemPromptTokens = 0;
         if (systemPrompt != null && !systemPrompt.isBlank()) {
             // +4 为 system message 的包装开销预留一个粗略缓冲
             systemPromptTokens = encoding.countTokens(systemPrompt) + 4;
         }
 
+        int memorySummaryTokens = 0;
+        if (memorySystemPrompts != null) {
+            for (String memorySystemPrompt : memorySystemPrompts) {
+                if (memorySystemPrompt != null && !memorySystemPrompt.isBlank()) {
+                    memorySummaryTokens += encoding.countTokens(memorySystemPrompt) + 4;
+                }
+            }
+        }
+
         // 总预算先扣除 system prompt，再把剩余额度分配给历史消息窗口
-        int availableHistoryTokens = chatMemoryConfig.getPromptTokenLimit() - systemPromptTokens;
+        int availableHistoryTokens = chatMemoryConfig.getPromptTokenLimit() - systemPromptTokens - memorySummaryTokens;
         // 通过最小值兜底，避免 system prompt 过长导致历史上下文完全丢失
         int resolvedLimit = Math.max(chatMemoryConfig.getMinimumHistoryTokens(), availableHistoryTokens);
-        log.info("本次短期记忆 token 预算：promptLimit={}, systemPromptTokens≈{}, historyLimit={}",
-                chatMemoryConfig.getPromptTokenLimit(), systemPromptTokens, resolvedLimit);
+        log.info("本次短期记忆 token 预算：promptLimit={}, systemPromptTokens≈{}, memorySummaryTokens≈{}, historyLimit={}",
+                chatMemoryConfig.getPromptTokenLimit(), systemPromptTokens, memorySummaryTokens, resolvedLimit);
         return resolvedLimit;
     }
 
@@ -725,7 +760,7 @@ public class ChatService {
      * @param originalModel 原始请求中指定的模型（如不为空则优先使用）
      * @return 路由后的模型名称
      */
-    private String routeModelByQuestionLength(String question, String originalModel) {
+    private String routeModelByQuestionLength(String question, String originalModel, AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch) {
         // 1. 优先遵循用户显式指定的模型
         if (originalModel != null && !originalModel.trim().isEmpty()) {
             return originalModel;
@@ -736,19 +771,17 @@ public class ChatService {
         }
         
         String trimmedQuestion = question.trim();
-        var keywordMatch = aiTaskKeywordService.findFirstMatch(trimmedQuestion);
 
-        // 2. 关键词特征检测：优先使用数据库中的任务类型和关键词
-        if (keywordMatch.isPresent()) {
-            AiTaskKeywordService.TaskKeywordMatch match = keywordMatch.get();
-            if (aiTaskKeywordService.isComplexTaskType(match.taskType())) {
+        // 2. 模型路由只负责算力选择，使用前面任务匹配阶段的结果，不再参与提示词反推。
+        if (taskKeywordMatch != null) {
+            if (aiTaskKeywordService.isComplexTaskType(taskKeywordMatch.taskType())) {
                 log.debug("模型路由: 命中复杂任务关键词，任务类型={}, 关键词={}, 升级到 {} 模型",
-                        match.taskType(), match.keyword(), COMPLEX_MODEL);
+                        taskKeywordMatch.taskType(), taskKeywordMatch.keyword(), COMPLEX_MODEL);
                 return COMPLEX_MODEL;
             }
 
             log.debug("模型路由: 命中文本类关键词，任务类型={}, 关键词={}，继续使用长度规则判断",
-                    match.taskType(), match.keyword());
+                    taskKeywordMatch.taskType(), taskKeywordMatch.keyword());
         }
         
         // 3. 长度特征检测：长文本通常意味着复杂语境
@@ -793,9 +826,7 @@ public class ChatService {
         final StringBuilder fullContentLog = new StringBuilder();
         
         return responseFlux
-                .doOnSubscribe(subscription -> {
-                    log.info("⏰ [{}] 开始订阅 Ollama 流式响应...", formatTimestamp(0));
-                })
+                .doOnSubscribe(subscription -> log.info("⏰ [{}] 开始订阅 Ollama 流式响应...", formatTimestamp(0)))
                 .map(response -> {
                     long currentTime = System.currentTimeMillis();
                     long elapsed = currentTime - startTime;

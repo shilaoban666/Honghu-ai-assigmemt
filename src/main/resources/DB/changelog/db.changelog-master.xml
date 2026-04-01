@@ -53,5 +53,8 @@
     <!-- 引入 AI 任务路由关键词表变更日志 -->
     <include file="DB/changelog/db.changelog-ai-task-keywords.xml" relativeToChangelogFile="false"/>
 
+    <!-- 引入中期记忆摘要与用户主体画像表变更日志 -->
+    <include file="DB/changelog/db.changelog-memory-summary.xml" relativeToChangelogFile="false"/>
+
 </databaseChangeLog>
 
