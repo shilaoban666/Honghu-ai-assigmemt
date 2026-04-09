@@ -86,6 +86,23 @@ public class User {
     private UserStatus userStatus;
 
     /**
+     * 用户身份角色。
+     *
+     * <p>角色与模型能力的默认关系如下：</p>
+     * <ul>
+     *     <li>GUEST：游客，只能使用“普通模型”，默认限制为本地 + 第二梯队模型</li>
+     *     <li>USER：普通用户，只能使用第二梯队模型</li>
+     *     <li>VIP：VIP 用户，可使用全部梯队模型</li>
+     *     <li>ADMIN：管理员，可使用全部梯队模型，并拥有全量管理权限</li>
+     * </ul>
+     */
+    @Builder.Default
+    @Column(name = "user_role", length = 20, nullable = false)
+    @Schema(description = "用户角色", example = "USER")
+    @Enumerated(EnumType.STRING)
+    private UserRole userRole = UserRole.USER;
+
+    /**
      * 家庭地址
      */
     @Column(name = "home_address", length = 500)
@@ -128,11 +145,42 @@ public class User {
     public enum UserStatus {
         @Schema(description= "活跃")
         ACTIVE,
-        
+
         @Schema(description = "未激活")
         INACTIVE,
-        
+
         @Schema(description = "已封禁")
-        BANNED
+        BANNED,
+
+        @Schema(description = "待验证")
+        PENDING_VERIFICATION,
+
+        @Schema(description = "待审核")
+        PENDING_REVIEW,
+
+        @Schema(description = "已注销")
+        DELETED,
+        @Schema(description = "已暂停")
+        SUSPENDED,
+        @Schema(description = "受限")
+        RESTRICTED
+    }
+
+
+    /**
+     * 用户角色枚举。
+     */
+    public enum UserRole {
+        @Schema(description = "游客")
+        GUEST,
+
+        @Schema(description = "普通用户")
+        USER,
+
+        @Schema(description = "VIP 用户")
+        VIP,
+
+        @Schema(description = "管理员")
+        ADMIN
     }
 }

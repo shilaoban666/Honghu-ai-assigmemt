@@ -2,6 +2,7 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.DefaultSystemPromptProvider;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
@@ -42,14 +43,18 @@ class ChatServiceRoutingTest {
     private DefaultSystemPromptProvider defaultSystemPromptProvider;
     @Mock
     private ChatSummaryService chatSummaryService;
+    @Mock
+    private AiModelAccessService aiModelAccessService;
+    @Mock
+    private AiChatModelGatewayService aiChatModelGatewayService;
 
     private ChatService chatService;
 
     @BeforeEach
     void setUp() {
         ChatMemoryConfig chatMemoryConfig = new ChatMemoryConfig();
+        AiProviderProperties aiProviderProperties = new AiProviderProperties();
         chatService = new ChatService(
-                ollamaChatModel,
                 chatClientBuilder,
                 chatSessionRepository,
                 chatMessageRepository,
@@ -58,7 +63,10 @@ class ChatServiceRoutingTest {
                 chatMemoryService,
                 chatMemoryConfig,
                 defaultSystemPromptProvider,
-                chatSummaryService
+                chatSummaryService,
+                aiModelAccessService,
+                aiChatModelGatewayService,
+                aiProviderProperties
         );
     }
 
