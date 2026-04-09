@@ -62,7 +62,15 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ChatResponse.error("系统内部错误: " + ex.getMessage()));
     }
-
+    /**
+     * 处理login服务异常
+     */
+    @ExceptionHandler(LoginServiceException.class)
+    public ResponseEntity<ChatResponse> handleLoginServiceException(LoginServiceException ex) {
+        log.error("login服务异常: {}", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ChatResponse.error("登录失败 : " + ex.getMessage()));
+    }
     /**
      * 处理AI服务异常
      */

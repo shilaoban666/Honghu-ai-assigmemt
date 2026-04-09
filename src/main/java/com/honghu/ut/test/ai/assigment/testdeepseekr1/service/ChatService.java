@@ -2,8 +2,10 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.DefaultSystemPromptProvider;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
@@ -26,10 +28,7 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
-import org.springframework.ai.ollama.OllamaChatModel;
-import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.stereotype.Service;
 // import org.springframework.transaction.annotation.Transactional;  // 暂时注释，解决编译问题
 import reactor.core.publisher.Flux;
@@ -51,7 +50,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ChatService {
 
-    private final OllamaChatModel ollamaChatModel;
     private final ChatClient.Builder chatClientBuilder;
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
@@ -61,6 +59,9 @@ public class ChatService {
     private final ChatMemoryConfig chatMemoryConfig;
     private final DefaultSystemPromptProvider defaultSystemPromptProvider;
     private final ChatSummaryService chatSummaryService;
+    private final AiModelAccessService aiModelAccessService;
+    private final AiChatModelGatewayService aiChatModelGatewayService;
+    private final AiProviderProperties aiProviderProperties;
 
     // 流式响应日志配置（可通过 YAML 控制）
     // 在 application.yml 中设置：chat.streaming.log.enabled=true 开启详细日志
@@ -76,14 +77,6 @@ public class ChatService {
     // 如需 DeepSeek 精确统计，应以 Ollama 返回的 tokenUsage 为准
     private static final EncodingRegistry registry = Encodings.newDefaultEncodingRegistry();
     private static final Encoding encoding = registry.getEncoding(EncodingType.CL100K_BASE);
-
-    // 模型路由配置
-    // 简单指令/闲聊阈值：问题长度小于此值使用 8B 模型（常驻 CPU）
-    private static final int SIMPLE_QUERY_LENGTH_THRESHOLD = 20;
-    // 简单模型：8B 模型，常驻 CPU，用于简单指令和闲聊
-    private static final String SIMPLE_MODEL = "deepseek-r1:8b";
-    // 复杂模型：32B 模型，GPU 按需加载，用于复杂任务和代码生成
-    private static final String COMPLEX_MODEL = "deepseek-r1:32b";
 
     /**
      * 简单聊天实现（带重试机制）
@@ -103,16 +96,12 @@ public class ChatService {
             log.info("开始处理简单聊天请求: {} (剩余重试次数: {})", message, remainingRetries);
             AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(message).orElse(null);
             String systemPrompt = resolveSystemPrompt(null, taskKeywordMatch);
-
-            var response = chatClientBuilder.build()
-                    .prompt(systemPrompt)
-                    .user(message)
-                    .call()
-                    .chatResponse();
-
-            return ChatResponse.success(
-                    response.getResult().getOutput().getContent(),
-                    response.getMetadata().getModel()
+            AiModelDefinition model = resolveChatModelDefinition(null, null, message, taskKeywordMatch);
+            return aiChatModelGatewayService.chat(
+                    model,
+                    List.of(new SystemMessage(systemPrompt), new UserMessage(message)),
+                    null,
+                    null
             );
         } catch (Exception e) {
             log.warn("简单聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
@@ -167,9 +156,10 @@ public class ChatService {
      */
     private ChatResponse structuredChatWithRetry(ChatRequest request, int remainingRetries) {
         try {
+            User chatUser = loadOptionalUser(request.getUserId());
             AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(request.getMessage()).orElse(null);
-            String routedModel = routeModelByQuestionLength(request.getMessage(), request.getModel(), taskKeywordMatch);
-            request.setModel(routedModel);
+            AiModelDefinition modelDefinition = resolveChatModelDefinition(chatUser, request.getModel(), request.getMessage(), taskKeywordMatch);
+            request.setModel(modelDefinition.getModelCode());
             // 记录请求日志，便于监控和调试
             log.info("开始处理结构化聊天请求: {} (剩余重试次数: {})", request, remainingRetries);
             // 系统提示词在任务分类阶段就确定：
@@ -177,47 +167,15 @@ public class ChatService {
             // 这样提示词选择与后续模型路由解耦，不会出现“根据最终模型反推 prompt”的耦合问题。
             String systemPrompt = resolveSystemPrompt(request.getSystemMessage(), taskKeywordMatch);
 
-            // 构建模型选项配置
-            // temperature: 控制生成文本的随机性，0.0表示最确定性，1.0表示最随机
-            // numPredict: 限制生成文本的最大token数，防止过长回复
-            OllamaOptions options = OllamaOptions.create()
-                    .withModel(request.getModel())
-                    .withTemperature(request.getTemperature())
-                    .withNumPredict(request.getMaxTokens());
-
-            // 构建完整的对话提示
-            // SystemPromptTemplate: 将系统提示词包装为系统消息
-            // UserMessage: 包装用户输入内容
-            SystemPromptTemplate systemPromptTemplate = new SystemPromptTemplate(systemPrompt);
-            Prompt prompt = new Prompt(
+            return aiChatModelGatewayService.chat(
+                    modelDefinition,
                     List.of(
-                        systemPromptTemplate.createMessage(),  // 系统角色定义
-                        new UserMessage(request.getMessage())   // 用户实际输入
+                            new SystemPromptTemplate(systemPrompt).createMessage(),
+                            new UserMessage(request.getMessage())
                     ),
-                    options  // 模型参数配置
+                    request.getTemperature(),
+                    request.getMaxTokens()
             );
-
-            // 调用Ollama模型进行推理
-            var response = ollamaChatModel.call(prompt);
-
-            // 提取并构建token使用统计信息
-            // promptTokens: 输入提示消耗的token数
-            // completionTokens: AI生成回复消耗的token数  
-            // totalTokens: 总共消耗的token数
-            ChatResponse.TokenUsage tokenUsage = ChatResponse.TokenUsage.builder()
-                    .promptTokens(response.getMetadata().getUsage().getPromptTokens().intValue())
-                    .completionTokens(response.getMetadata().getUsage().getGenerationTokens().intValue())
-                    .totalTokens(response.getMetadata().getUsage().getTotalTokens().intValue())
-                    .build();
-
-            // 构建成功的响应对象
-            return ChatResponse.builder()
-                    .content(response.getResult().getOutput().getContent())  // AI回复内容
-                    .model(response.getMetadata().getModel())               // 使用的模型
-                    .timestamp(System.currentTimeMillis())                  // 响应时间
-                    .success(true)                                          // 标记成功
-                    .tokenUsage(tokenUsage)                                 // token使用详情
-                    .build();
 
         } catch (Exception e) {
             log.warn("结构化聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
@@ -281,13 +239,14 @@ public class ChatService {
         String messageContent = request.getMessage() != null ? request.getMessage() : "";
         
         AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(messageContent).orElse(null);
-        String routedModel = routeModelByQuestionLength(messageContent, originalModel, taskKeywordMatch);
-        request.setModel(routedModel);
-        
+        User chatUser = userRepository.findById(request.getUserId()).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        AiModelDefinition selectedModel = resolveChatModelDefinition(chatUser, originalModel, messageContent, taskKeywordMatch);
+        request.setModel(selectedModel.getModelCode());
+
         // 仅在发生模型切换或自动选择时记录 Info 日志
-        if (originalModel == null || originalModel.isEmpty() || !originalModel.equals(routedModel)) {
+        if (originalModel == null || originalModel.isEmpty() || !originalModel.equals(selectedModel.getModelCode())) {
             log.info("模型自动路由生效：输入长度={}, 目标模型={}, 已加载任务分类={}",
-                    messageContent.length(), routedModel, aiTaskKeywordService.getKeywordsGroupedByTaskType().keySet());
+                    messageContent.length(), selectedModel.getModelCode(), aiTaskKeywordService.getKeywordsGroupedByTaskType().keySet());
         }
 
         // 步骤 1: 确保会话存在，如不存在则创建新会话
@@ -298,7 +257,6 @@ public class ChatService {
             request.setSessionId(sessionId);
         }
         String userId = request.getUserId();
-        User chatUser = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
 
         final String finalSessionId = sessionId;  // 用于 lambda 表达式中的 final 变量
             
@@ -367,7 +325,7 @@ public class ChatService {
 
         // 步骤 4: 执行流式聊天并保存 AI 回复
         // 使用带历史记录和重试机制的流式聊天方法
-        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, systemPrompt, selectedHistory, memorySystemPrompts, MAX_RETRIES);
+        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, selectedModel, systemPrompt, selectedHistory, memorySystemPrompts, MAX_RETRIES);
 
         // 异步保存 AI 响应到数据库（不阻塞流式传输）
         StringBuilder fullContent = new StringBuilder();
@@ -405,19 +363,13 @@ public class ChatService {
 
     private Flux<ChatResponse> structuredStreamChatWithRetryAndHistory(
             ChatRequest request,
+            AiModelDefinition selectedModel,
             String resolvedSystemPrompt,
             List<ChatMessage> history,
             List<String> memorySystemPrompts,
             int remainingRetries) {
         return Flux.defer(() -> {
             log.info("开始处理带历史记录的结构化流式聊天请求：{} (剩余重试次数：{})", request, remainingRetries);
-
-            // 这里直接复用调用入口已经确定好的最终 system prompt，
-            // 避免重试时再次根据模型或其他后续逻辑重新推导提示词。
-            OllamaOptions options = OllamaOptions.create()
-                    .withModel(request.getModel())
-                    .withTemperature(request.getTemperature())
-                    .withNumPredict(request.getMaxTokens());
 
             // Prompt 的第一条始终是系统角色定义，用于约束模型行为
             List<Message> messages = new ArrayList<>();
@@ -440,7 +392,6 @@ public class ChatService {
             }
 
 
-            Prompt prompt = new Prompt(messages, options);
             log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, memorySystemMessages={}, historyMessages={}",
                     request.getSessionId(),
                     encoding.countTokens(resolvedSystemPrompt),
@@ -448,13 +399,18 @@ public class ChatService {
                     history.size());
 
             // 使用流式响应日志记录器（可配置）
-            return logStreamingResponse(ollamaChatModel.stream(prompt));
+            return logStreamingResponse(aiChatModelGatewayService.streamChat(
+                    selectedModel,
+                    messages,
+                    request.getTemperature(),
+                    request.getMaxTokens()
+            ));
         })
         .onErrorResume(e -> {
             log.warn("结构化流式聊天处理失败 (剩余重试次数：{}): {}", remainingRetries, e.getMessage());
             if (isConnectionException((Exception) e) && remainingRetries > 0) {
                 return Mono.delay(Duration.ofMillis(RETRY_DELAY_MS))
-                        .thenMany(structuredStreamChatWithRetryAndHistory(request, resolvedSystemPrompt, history, memorySystemPrompts, remainingRetries - 1));
+                        .thenMany(structuredStreamChatWithRetryAndHistory(request, selectedModel, resolvedSystemPrompt, history, memorySystemPrompts, remainingRetries - 1));
             }
             return Flux.error(new RuntimeException("聊天服务暂时不可用：" + e.getMessage(), e));
         });
@@ -482,11 +438,13 @@ public class ChatService {
             // 简单流式聊天没有 request 对象，因此直接使用缓存后的默认 system prompt。
             AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(message).orElse(null);
             String systemPrompt = resolveSystemPrompt(null, taskKeywordMatch);
-            return chatClientBuilder.build()
-                    .prompt(systemPrompt)
-                    .advisors(new SimpleLoggerAdvisor()).user(message)
-                    .stream()
-                    .content();
+            AiModelDefinition model = resolveChatModelDefinition(null, null, message, taskKeywordMatch);
+            return aiChatModelGatewayService.streamChat(
+                            model,
+                            List.of(new SystemMessage(systemPrompt), new UserMessage(message)),
+                            null,
+                            null)
+                    .map(ChatResponse::getContent);
         }).onErrorResume(e -> {
             log.warn("简单流式聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
             if (e instanceof Exception exception && isConnectionException(exception) && remainingRetries > 0) {
@@ -767,7 +725,7 @@ public class ChatService {
         }
         
         if (question == null || question.trim().isEmpty()) {
-            return SIMPLE_MODEL;
+            return aiProviderProperties.getRouting().getSimpleDefaultModel();
         }
         
         String trimmedQuestion = question.trim();
@@ -776,8 +734,8 @@ public class ChatService {
         if (taskKeywordMatch != null) {
             if (aiTaskKeywordService.isComplexTaskType(taskKeywordMatch.taskType())) {
                 log.debug("模型路由: 命中复杂任务关键词，任务类型={}, 关键词={}, 升级到 {} 模型",
-                        taskKeywordMatch.taskType(), taskKeywordMatch.keyword(), COMPLEX_MODEL);
-                return COMPLEX_MODEL;
+                        taskKeywordMatch.taskType(), taskKeywordMatch.keyword(), aiProviderProperties.getRouting().getComplexDefaultModel());
+                return aiProviderProperties.getRouting().getComplexDefaultModel();
             }
 
             log.debug("模型路由: 命中文本类关键词，任务类型={}, 关键词={}，继续使用长度规则判断",
@@ -786,14 +744,14 @@ public class ChatService {
         
         // 3. 长度特征检测：长文本通常意味着复杂语境
         int questionLength = trimmedQuestion.length();
-        if (questionLength >= SIMPLE_QUERY_LENGTH_THRESHOLD) {
-            log.debug("模型路由: 输入长度 ({}) 超过阈值，升级到 {} 模型", questionLength, COMPLEX_MODEL);
-            return COMPLEX_MODEL;
+        if (questionLength >= aiProviderProperties.getRouting().getSimpleQueryLengthThreshold()) {
+            log.debug("模型路由: 输入长度 ({}) 超过阈值，升级到 {} 模型", questionLength, aiProviderProperties.getRouting().getComplexDefaultModel());
+            return aiProviderProperties.getRouting().getComplexDefaultModel();
         }
 
         // 4. 默认为简单模式
-        log.debug("模型路由: 简单指令/闲聊，使用 {} 模型", SIMPLE_MODEL);
-        return SIMPLE_MODEL;
+        log.debug("模型路由: 简单指令/闲聊，使用 {} 模型", aiProviderProperties.getRouting().getSimpleDefaultModel());
+        return aiProviderProperties.getRouting().getSimpleDefaultModel();
     }
     
     /**
@@ -813,10 +771,9 @@ public class ChatService {
      * @param responseFlux 原始的流式响应 Flux
      * @return 带有日志记录的流式响应 Flux
      */
-    private Flux<ChatResponse> logStreamingResponse(Flux<org.springframework.ai.chat.model.ChatResponse> responseFlux) {
+    private Flux<ChatResponse> logStreamingResponse(Flux<ChatResponse> responseFlux) {
         if (!streamingLogEnabled) {
-            // 如果未开启日志，直接返回原始流
-            return responseFlux.map(this::convertToChatResponse);
+            return responseFlux;
         }
         
         // 记录流式响应的关键时间点
@@ -832,9 +789,8 @@ public class ChatService {
                     long elapsed = currentTime - startTime;
                     responseCount[0]++;
                     
-                    var output = response.getResult().getOutput();
-                    String content = output.getContent();
-                    
+                    String content = response.getContent();
+
                     // 记录第一个响应的时间（关键指标：首字延迟）
                     if (firstResponseTime[0] == 0) {
                         firstResponseTime[0] = elapsed;
@@ -859,7 +815,7 @@ public class ChatService {
                         }
                     }
                     
-                    return convertToChatResponse(response);
+                    return response;
                 })
                 .doOnComplete(() -> {
                     long totalTime = System.currentTimeMillis() - startTime;
@@ -877,21 +833,20 @@ public class ChatService {
                 });
     }
     
-    /**
-     * 转换 Spring AI 的 ChatResponse 为项目的 ChatResponse DTO
-     *
-     * @param response Spring AI 的 ChatResponse
-     * @return 项目的 ChatResponse DTO
-     */
-    private ChatResponse convertToChatResponse(org.springframework.ai.chat.model.ChatResponse response) {
-        var output = response.getResult().getOutput();
-        String content = output.getContent();
-        return ChatResponse.builder()
-                .content(content != null ? content : "")
-                .model(response.getMetadata().getModel())
-                .timestamp(System.currentTimeMillis())
-                .success(true)
-                .build();
+    private User loadOptionalUser(String userId) {
+        if (userId == null || userId.isBlank()) {
+            return null;
+        }
+        return userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+    }
+
+    private AiModelDefinition resolveChatModelDefinition(
+            User user,
+            String requestedModel,
+            String question,
+            AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch) {
+        String autoRoutedModel = routeModelByQuestionLength(question, null, taskKeywordMatch);
+        return aiModelAccessService.resolveModelForChat(user, requestedModel, autoRoutedModel);
     }
     
     /**

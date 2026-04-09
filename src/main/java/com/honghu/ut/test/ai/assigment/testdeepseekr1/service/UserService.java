@@ -1,6 +1,7 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.LoginServiceException;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final AiModelAccessService aiModelAccessService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /**
@@ -76,8 +78,14 @@ public class UserService {
         if (user.getUserStatus() == null) {
             user.setUserStatus(User.UserStatus.ACTIVE);
         }
-        
+        if (user.getUserRole() == null) {
+            user.setUserRole(User.UserRole.USER);
+        }
+
         User savedUser = userRepository.save(user);
+        if (savedUser.getUserRole() != User.UserRole.ADMIN) {
+            aiModelAccessService.grantDefaultLocalModels(savedUser.getUserId());
+        }
         log.info("用户创建成功：{}, userId: {}", user.getUsername(), savedUser.getUserId());
         
         return savedUser;
@@ -323,7 +331,7 @@ public class UserService {
         if (!rawPassword.equalsIgnoreCase(user.getPassword())){
             String errorMsg = "密码错误";
             log.warn("用户 {} 密码验证失败", username);
-            throw new RuntimeException(errorMsg);
+            throw new LoginServiceException(errorMsg);
         }
 //        // 验证密码
 //        if (!passwordEncoder.matches(rawPassword, user.getPassword())) {
@@ -334,5 +342,20 @@ public class UserService {
         
         log.info("用户 {} 登录验证成功", username);
         return user;
+    }
+
+    /**
+     * 构造一个“游客身份”的临时用户对象。
+     *
+     * <p>该对象不落库，仅用于 login 接口在游客模式下返回统一的数据结构。</p>
+     */
+    public User buildGuestUser() {
+        return User.builder()
+                .userId("guest")
+                .username("guest")
+                .nickname("游客")
+                .userStatus(User.UserStatus.ACTIVE)
+                .userRole(User.UserRole.GUEST)
+                .build();
     }
 }

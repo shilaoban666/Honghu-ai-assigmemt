@@ -1,8 +1,10 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.controller;
 
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.AiModelResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.LoginRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.UserResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.AiModelAccessService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -29,6 +31,7 @@ import java.util.List;
 public class UserController {
 
     private final UserService userService;
+    private final AiModelAccessService aiModelAccessService;
 
     /**
      * 创建新用户
@@ -127,20 +130,39 @@ public class UserController {
     }
 
     /**
-     * 用户登录
+     * 用户登录。
+     *
+     * <p>返回结果除了基础用户信息，还会包含：</p>
+     * <ul>
+     *     <li>identity：身份枚举（GUEST / USER / VIP / ADMIN）</li>
+     *     <li>identityLabel：身份中文名称</li>
+     *     <li>permissionSummary：该身份的模型权限说明</li>
+     *     <li>availableModels：本次登录后当前身份真正可用的模型列表</li>
+     * </ul>
      */
     @PostMapping("/login")
-    @Operation(summary = "用户登录", description = "用户名密码登录，返回用户信息（不含密码）")
+    @Operation(summary = "用户登录", description = "用户名密码登录或游客登录，返回身份、权限摘要与可用模型列表")
     public ResponseEntity<UserResponse> login(@RequestBody LoginRequest loginRequest) {
-        log.info("收到用户登录请求：{}", loginRequest.getUsername());
-        
-        // 验证用户名密码
-        User user = userService.authenticate(loginRequest.getUsername(), loginRequest.getPassword());
-        
-        // 转换为不包含密码的响应
-        UserResponse response = UserResponse.fromUser(user);
-        
-        log.info("用户 {} 登录成功", loginRequest.getUsername());
+        User user;
+        if (Boolean.TRUE.equals(loginRequest.getGuestLogin())) {
+            log.info("收到游客登录请求");
+            user = userService.buildGuestUser();
+        } else {
+            log.info("收到用户登录请求：{}", loginRequest.getUsername());
+            user = userService.authenticate(loginRequest.getUsername(), loginRequest.getPassword());
+        }
+
+        UserResponse response = UserResponse.fromLoginUser(
+                user,
+                user.getUserRole(),
+                aiModelAccessService.resolveIdentityLabel(user.getUserRole()),
+                aiModelAccessService.resolvePermissionSummary(user.getUserRole()),
+                aiModelAccessService.listAccessibleModels(user).stream()
+                        .map(AiModelResponse::fromEntity)
+                        .toList()
+        );
+
+        log.info("身份 {} 登录成功，可用模型数={}", user.getUserRole(), response.getAvailableModels().size());
         return ResponseEntity.ok(response);
     }
 }

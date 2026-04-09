@@ -1,5 +1,6 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.config;
 
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -19,6 +20,12 @@ import okhttp3.OkHttpClient;
 @Slf4j
 @Configuration
 public class HttpClientConfig {
+
+    private final AiProviderProperties aiProviderProperties;
+
+    public HttpClientConfig(AiProviderProperties aiProviderProperties) {
+        this.aiProviderProperties = aiProviderProperties;
+    }
 
     /**
      * 配置RestTemplate Bean，包含连接池和超时设置
@@ -71,5 +78,32 @@ public class HttpClientConfig {
         log.info("初始化Ollama专用RestTemplate配置完成 - 专为AI推理优化");
 
         return new RestTemplate(factory);
+    }
+
+    /**
+     * 外部多 provider 统一 HTTP 客户端。
+     *
+     * <p>容量参数统一从 app.ai.connection 读取，避免继续在代码里硬编码。</p>
+     */
+    @Bean("aiGatewayOkHttpClient")
+    public OkHttpClient aiGatewayOkHttpClient() {
+        long connectTimeoutMillis = aiProviderProperties.getConnection().getConnectTimeout();
+        long readTimeoutMillis = aiProviderProperties.getConnection().getReadTimeout();
+        int poolSize = aiProviderProperties.getConnection().getPoolSize();
+
+        OkHttpClient client = new OkHttpClient.Builder()
+                .connectionPool(new ConnectionPool(
+                        poolSize,
+                        60,
+                        TimeUnit.SECONDS))
+                .connectTimeout(Duration.ofMillis(connectTimeoutMillis))
+                .readTimeout(Duration.ofMillis(readTimeoutMillis))
+                .writeTimeout(Duration.ofMillis(connectTimeoutMillis))
+                .retryOnConnectionFailure(aiProviderProperties.getConnection().isKeepAlive())
+                .build();
+
+        log.info("初始化 AI Gateway OkHttpClient 完成 - 连接池大小: {}, 连接超时: {}ms, 读取超时: {}ms",
+                poolSize, connectTimeoutMillis, readTimeoutMillis);
+        return client;
     }
 }
