@@ -12,7 +12,8 @@ spring:
   # Spring AI Ollama Configuration
   ai:
     ollama:
-      base-url: http://117.50.195.175:11434
+      # 本地默认模型统一走 localhost；外部模型由 app.ai.providers 负责
+      base-url: ${OLLAMA_LOCAL_BASE_URL:http://localhost:11434}
       chat:
         enabled: true
         options:
@@ -92,8 +93,22 @@ springdoc:
 # Custom Application Properties
 app:
   ai:
-    default-model: deepseek-r1:8b
+    # =========================
+    # AI 模型路由与 provider 配置
+    # - default-model: 默认兜底模型编码
+    # - routing: 自动路由时，简单/复杂问题默认命中的模型编码
+    # - providers: 不同模型提供商的 base-url / key / header 配置
+    #   其中 ollama-local 为本地 localhost 模型，不使用 API Key
+    # =========================
+    default-model: ${APP_AI_DEFAULT_MODEL:deepseek-r1:8b}
     default-temperature: 0.7
+    connection-health-check-interval: ${APP_AI_CONNECTION_HEALTH_CHECK_INTERVAL:30000}
+
+    routing:
+      simple-query-length-threshold: ${APP_AI_SIMPLE_QUERY_LENGTH_THRESHOLD:20}
+      simple-default-model: ${APP_AI_SIMPLE_DEFAULT_MODEL:deepseek-r1:8b}
+      complex-default-model: ${APP_AI_COMPLEX_DEFAULT_MODEL:deepseek-r1:32b}
+
     timeout:
       seconds: 300
     retry:
@@ -105,6 +120,114 @@ app:
       connect-timeout: 120000
       read-timeout: 600000
       keep-alive: true
+
+    providers:
+      # 本地默认模型：直接走 localhost / Ollama，不需要 API Key
+      ollama-local:
+        type: OLLAMA_LOCAL
+        enabled: true
+        base-url: ${OLLAMA_LOCAL_BASE_URL:http://localhost:11434}
+        chat-completions-path: /api/chat
+        use-api-key: false
+
+      # 以下 provider 默认按“外部模型 + API Key”处理。
+      # 如果你使用的是统一聚合平台 / OpenAI-compatible 网关，通常只需要：
+      # 1. 配 base-url
+      # 2. 配 api-key
+      # 3. 保持 /v1/chat/completions 或对应 chat-completions-path
+      #
+      # 特别说明：
+      # - DeepSeek 平台申请到的是 API Key（通常是 sk-...），不是 SSH Key。
+      # - 对 DeepSeek 官方平台，常见配置就是：base-url + API Key。
+      # - 对其他模型，如果你也是通过统一聚合平台接入，通常也同样是 base-url + API Key。
+      # - 如果你是直连某厂商官方平台，而协议不是 OpenAI-compatible，
+      #   则需要把对应 provider 的 path/header 配成该厂商要求的值。
+      anthropic:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+        chat-completions-path: ${ANTHROPIC_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${ANTHROPIC_API_KEY:}
+        api-key-header: ${ANTHROPIC_API_KEY_HEADER:Authorization}
+        api-key-prefix: ${ANTHROPIC_API_KEY_PREFIX:Bearer }
+
+      gemini:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+        chat-completions-path: ${GEMINI_CHAT_COMPLETIONS_PATH:/v1beta/openai/chat/completions}
+        use-api-key: true
+        api-key: ${GEMINI_API_KEY:}
+        api-key-header: ${GEMINI_API_KEY_HEADER:Authorization}
+        api-key-prefix: ${GEMINI_API_KEY_PREFIX:Bearer }
+
+      nano-banana:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${NANO_BANANA_BASE_URL:https://api.nanobanana.example.com}
+        chat-completions-path: ${NANO_BANANA_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${NANO_BANANA_API_KEY:}
+
+      openai:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+        chat-completions-path: ${OPENAI_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${OPENAI_API_KEY:}
+
+      deepseek-cloud:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        # DeepSeek 官方平台：把申请到的 API Key 配到 DEEPSEEK_CLOUD_API_KEY 即可。
+        base-url: ${DEEPSEEK_CLOUD_BASE_URL:https://api.deepseek.com}
+        chat-completions-path: ${DEEPSEEK_CLOUD_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${DEEPSEEK_CLOUD_API_KEY:}
+
+      xai:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${XAI_BASE_URL:https://api.x.ai}
+        chat-completions-path: ${XAI_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${XAI_API_KEY:}
+
+      moonshot:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${MOONSHOT_BASE_URL:https://api.moonshot.cn}
+        chat-completions-path: ${MOONSHOT_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${MOONSHOT_API_KEY:}
+
+      minimax:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${MINIMAX_BASE_URL:https://api.minimax.chat}
+        chat-completions-path: ${MINIMAX_CHAT_COMPLETIONS_PATH:/v1/text/chatcompletion_v2}
+        use-api-key: true
+        api-key: ${MINIMAX_API_KEY:}
+        api-key-header: ${MINIMAX_API_KEY_HEADER:Authorization}
+        api-key-prefix: ${MINIMAX_API_KEY_PREFIX:Bearer }
+
+      zhipu:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${ZHIPU_BASE_URL:https://open.bigmodel.cn}
+        chat-completions-path: ${ZHIPU_CHAT_COMPLETIONS_PATH:/api/paas/v4/chat/completions}
+        use-api-key: true
+        api-key: ${ZHIPU_API_KEY:}
+
+      mimo:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${MIMO_BASE_URL:https://api.mimo.example.com}
+        chat-completions-path: ${MIMO_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${MIMO_API_KEY:}
 
   # =========================
   # 聊天提示词与流式日志配置

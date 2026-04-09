@@ -56,5 +56,8 @@
     <!-- 引入中期记忆摘要与用户主体画像表变更日志 -->
     <include file="DB/changelog/db.changelog-memory-summary.xml" relativeToChangelogFile="false"/>
 
+    <!-- 引入 AI 模型目录与用户模型权限表 -->
+    <include file="DB/changelog/db.changelog-ai-models.xml" relativeToChangelogFile="false"/>
+
 </databaseChangeLog>
 

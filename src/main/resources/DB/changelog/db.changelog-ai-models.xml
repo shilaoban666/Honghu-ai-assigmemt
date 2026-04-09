@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.0.xsd">
+
+    <changeSet id="7" author="copilot">
+        <addColumn tableName="users">
+            <column name="user_role" type="VARCHAR(20)" defaultValue="USER">
+                <constraints nullable="false"/>
+            </column>
+        </addColumn>
+        <createIndex indexName="idx_users_role" tableName="users">
+            <column name="user_role"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="8" author="copilot">
+        <createTable tableName="ai_model_definition">
+            <column name="model_code" type="VARCHAR(100)">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="display_name" type="VARCHAR(160)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="provider_code" type="VARCHAR(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="api_model_name" type="VARCHAR(160)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="level" type="INT">
+                <constraints nullable="false"/>
+            </column>
+            <column name="local_model" type="BOOLEAN" defaultValueBoolean="false">
+                <constraints nullable="false"/>
+            </column>
+            <column name="supports_stream" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="enabled" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="description" type="VARCHAR(500)"/>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <createIndex indexName="idx_ai_model_provider" tableName="ai_model_definition">
+            <column name="provider_code"/>
+        </createIndex>
+        <createIndex indexName="idx_ai_model_level" tableName="ai_model_definition">
+            <column name="level"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="9" author="copilot">
+        <createTable tableName="user_model_permission">
+            <column name="id" type="BIGSERIAL">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="user_id" type="VARCHAR(64)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="model_code" type="VARCHAR(100)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="enabled" type="BOOLEAN" defaultValueBoolean="true">
+                <constraints nullable="false"/>
+            </column>
+            <column name="created_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+            <column name="updated_at" type="TIMESTAMP" defaultValueComputed="CURRENT_TIMESTAMP">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addForeignKeyConstraint baseTableName="user_model_permission"
+                                 baseColumnNames="user_id"
+                                 referencedTableName="users"
+                                 referencedColumnNames="user_id"
+                                 constraintName="fk_user_model_permission_user"/>
+        <addForeignKeyConstraint baseTableName="user_model_permission"
+                                 baseColumnNames="model_code"
+                                 referencedTableName="ai_model_definition"
+                                 referencedColumnNames="model_code"
+                                 constraintName="fk_user_model_permission_model"/>
+        <addUniqueConstraint tableName="user_model_permission"
+                             columnNames="user_id,model_code"
+                             constraintName="uk_user_model_permission_user_model"/>
+        <createIndex indexName="idx_user_model_permission_user_id" tableName="user_model_permission">
+            <column name="user_id"/>
+        </createIndex>
+        <createIndex indexName="idx_user_model_permission_model_code" tableName="user_model_permission">
+            <column name="model_code"/>
+        </createIndex>
+    </changeSet>
+
+    <changeSet id="10" author="copilot">
+        <insert tableName="ai_model_definition"><column name="model_code" value="deepseek-r1:8b"/><column name="display_name" value="DeepSeek R1 8B Local"/><column name="provider_code" value="ollama-local"/><column name="api_model_name" value="deepseek-r1:8b"/><column name="level" valueNumeric="2"/><column name="local_model" valueBoolean="true"/><column name="description" value="本地 Ollama 8B 模型，默认本地可用模型"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="deepseek-r1:32b"/><column name="display_name" value="DeepSeek R1 32B Local"/><column name="provider_code" value="ollama-local"/><column name="api_model_name" value="deepseek-r1:32b"/><column name="level" valueNumeric="1"/><column name="local_model" valueBoolean="true"/><column name="description" value="本地 Ollama 32B 模型，复杂任务默认优先"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="claude-sonnet-4.6"/><column name="display_name" value="Claude Sonnet 4.6"/><column name="provider_code" value="anthropic"/><column name="api_model_name" value="claude-sonnet-4.6"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="claude-opus-4.6"/><column name="display_name" value="Claude Opus 4.6"/><column name="provider_code" value="anthropic"/><column name="api_model_name" value="claude-opus-4.6"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="claude-haiku-4.5"/><column name="display_name" value="Claude Haiku 4.5"/><column name="provider_code" value="anthropic"/><column name="api_model_name" value="claude-haiku-4.5"/><column name="level" valueNumeric="2"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="gemini-3.1-pro-preview"/><column name="display_name" value="Gemini 3.1 Pro Preview"/><column name="provider_code" value="gemini"/><column name="api_model_name" value="gemini-3.1-pro-preview"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="gemini-3.1-flash-preview"/><column name="display_name" value="Gemini 3.1 Flash Preview"/><column name="provider_code" value="gemini"/><column name="api_model_name" value="gemini-3.1-flash-preview"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="gemini-3.1-flash-lite-preview"/><column name="display_name" value="Gemini 3.1 Flash-Lite Preview"/><column name="provider_code" value="gemini"/><column name="api_model_name" value="gemini-3.1-flash-lite-preview"/><column name="level" valueNumeric="2"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="nano-banana-2"/><column name="display_name" value="Nano Banana 2"/><column name="provider_code" value="nano-banana"/><column name="api_model_name" value="nano-banana-2"/><column name="level" valueNumeric="2"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="nano-banana-pro"/><column name="display_name" value="Nano Banana Pro"/><column name="provider_code" value="nano-banana"/><column name="api_model_name" value="nano-banana-pro"/><column name="level" valueNumeric="1"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="gpt-5.4"/><column name="display_name" value="GPT-5.4"/><column name="provider_code" value="openai"/><column name="api_model_name" value="gpt-5.4"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="gpt-5.4-pro"/><column name="display_name" value="GPT-5.4 Pro"/><column name="provider_code" value="openai"/><column name="api_model_name" value="gpt-5.4-pro"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="gpt-5.4-mini"/><column name="display_name" value="GPT-5.4 mini"/><column name="provider_code" value="openai"/><column name="api_model_name" value="gpt-5.4-mini"/><column name="level" valueNumeric="2"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="gpt-5.1"/><column name="display_name" value="GPT-5.1"/><column name="provider_code" value="openai"/><column name="api_model_name" value="gpt-5.1"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="gpt-5-mini"/><column name="display_name" value="GPT-5 mini"/><column name="provider_code" value="openai"/><column name="api_model_name" value="gpt-5-mini"/><column name="level" valueNumeric="2"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="gpt-5-chat"/><column name="display_name" value="GPT-5 Chat"/><column name="provider_code" value="openai"/><column name="api_model_name" value="gpt-5-chat"/><column name="level" valueNumeric="2"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="deepseek-v3.2"/><column name="display_name" value="DeepSeek V3.2"/><column name="provider_code" value="deepseek-cloud"/><column name="api_model_name" value="deepseek-v3.2"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="deepseek-v3.2-thinking"/><column name="display_name" value="DeepSeek V3.2 Thinking"/><column name="provider_code" value="deepseek-cloud"/><column name="api_model_name" value="deepseek-v3.2-thinking"/><column name="level" valueNumeric="1"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="grok-4.20-beta"/><column name="display_name" value="Grok 4.20 Beta"/><column name="provider_code" value="xai"/><column name="api_model_name" value="grok-4.20-beta"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="grok-4.20-beta-non-reasoning"/><column name="display_name" value="Grok 4.20 Beta (Non-Reasoning)"/><column name="provider_code" value="xai"/><column name="api_model_name" value="grok-4.20-beta-non-reasoning"/><column name="level" valueNumeric="2"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="grok-4"/><column name="display_name" value="Grok 4"/><column name="provider_code" value="xai"/><column name="api_model_name" value="grok-4"/><column name="level" valueNumeric="1"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="kimi-k2.5"/><column name="display_name" value="Kimi K2.5"/><column name="provider_code" value="moonshot"/><column name="api_model_name" value="kimi-k2.5"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="kimi-k2"/><column name="display_name" value="Kimi K2"/><column name="provider_code" value="moonshot"/><column name="api_model_name" value="kimi-k2"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="kimi-k2-turbo"/><column name="display_name" value="Kimi K2 Turbo"/><column name="provider_code" value="moonshot"/><column name="api_model_name" value="kimi-k2-turbo"/><column name="level" valueNumeric="2"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="kimi-k2-thinking"/><column name="display_name" value="Kimi K2 Thinking"/><column name="provider_code" value="moonshot"/><column name="api_model_name" value="kimi-k2-thinking"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="kimi-k2-thinking-turbo"/><column name="display_name" value="Kimi K2 Thinking Turbo"/><column name="provider_code" value="moonshot"/><column name="api_model_name" value="kimi-k2-thinking-turbo"/><column name="level" valueNumeric="2"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="minimax-m2.7"/><column name="display_name" value="MiniMax M2.7"/><column name="provider_code" value="minimax"/><column name="api_model_name" value="minimax-m2.7"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="minimax-m2.7-highspeed"/><column name="display_name" value="MiniMax M2.7 Highspeed"/><column name="provider_code" value="minimax"/><column name="api_model_name" value="minimax-m2.7-highspeed"/><column name="level" valueNumeric="2"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="minimax-m2.5"/><column name="display_name" value="MiniMax M2.5"/><column name="provider_code" value="minimax"/><column name="api_model_name" value="minimax-m2.5"/><column name="level" valueNumeric="2"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="minimax-m2.5-highspeed"/><column name="display_name" value="MiniMax M2.5 Highspeed"/><column name="provider_code" value="minimax"/><column name="api_model_name" value="minimax-m2.5-highspeed"/><column name="level" valueNumeric="2"/></insert>
+
+        <insert tableName="ai_model_definition"><column name="model_code" value="glm-5"/><column name="display_name" value="GLM-5"/><column name="provider_code" value="zhipu"/><column name="api_model_name" value="glm-5"/><column name="level" valueNumeric="1"/></insert>
+        <insert tableName="ai_model_definition"><column name="model_code" value="mimo-v2-pro"/><column name="display_name" value="MiMo-V2 Pro"/><column name="provider_code" value="mimo"/><column name="api_model_name" value="mimo-v2-pro"/><column name="level" valueNumeric="2"/></insert>
+    </changeSet>
+</databaseChangeLog>
+
