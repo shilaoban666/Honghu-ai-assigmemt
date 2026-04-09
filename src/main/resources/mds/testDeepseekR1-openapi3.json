@@ -1,0 +1,1329 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "honghu AI Chat API",
+    "description": "基于当前项目代码整理的 OpenAPI 3 文档，适用于 APIpost / Postman / OpenAPI 工具导入。",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "本地开发环境"
+    }
+  ],
+  "tags": [
+    {
+      "name": "用户管理"
+    },
+    {
+      "name": "AI 聊天接口"
+    },
+    {
+      "name": "会话管理"
+    },
+    {
+      "name": "健康检查"
+    },
+    {
+      "name": "系统监控"
+    }
+  ],
+  "paths": {
+    "/api/v1/users": {
+      "get": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "获取所有用户",
+        "operationId": "getAllUsers",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "创建用户",
+        "operationId": "createUser",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/User"
+              },
+              "example": {
+                "username": "lisi",
+                "password": "123456",
+                "nickname": "李四",
+                "email": "lisi@example.com",
+                "userRole": "USER"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "创建成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/users/login": {
+      "post": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "用户登录",
+        "description": "支持普通用户名密码登录和游客登录。登录成功后返回增强版 UserResponse，包含身份、权限摘要和可用模型列表。",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "examples": {
+                "normalLogin": {
+                  "summary": "普通登录",
+                  "value": {
+                    "guestLogin": false,
+                    "username": "zhangsan",
+                    "password": "123456"
+                  }
+                },
+                "guestLogin": {
+                  "summary": "游客登录",
+                  "value": {
+                    "guestLogin": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "登录成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/users/{userId}": {
+      "get": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "根据 ID 查询用户",
+        "operationId": "getUser",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "更新用户（全量）",
+        "operationId": "updateUser",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserIdPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/User"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "更新用户（部分）",
+        "operationId": "patchUpdateUser",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserIdPath"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/User"
+              },
+              "example": {
+                "nickname": "新的昵称",
+                "email": "new@example.com"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "更新成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "删除用户",
+        "operationId": "deleteUser",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserIdPath"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "删除成功"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/users/status/{status}": {
+      "get": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "按状态查询用户",
+        "operationId": "getUsersByStatus",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/UserStatus"
+            },
+            "description": "用户状态"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/users/search": {
+      "get": {
+        "tags": [
+          "用户管理"
+        ],
+        "summary": "搜索用户",
+        "operationId": "searchUsers",
+        "parameters": [
+          {
+            "name": "nickname",
+            "in": "query",
+            "required": true,
+            "description": "昵称关键词",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/simple": {
+      "get": {
+        "tags": [
+          "AI 聊天接口"
+        ],
+        "summary": "简单聊天",
+        "operationId": "simpleChat",
+        "parameters": [
+          {
+            "name": "message",
+            "in": "query",
+            "required": true,
+            "description": "用户消息",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/chat/structured": {
+      "post": {
+        "tags": [
+          "AI 聊天接口"
+        ],
+        "summary": "结构化聊天",
+        "operationId": "structuredChat",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XUserIdHeaderOptional"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              },
+              "example": {
+                "message": "请帮我总结一下这段方案",
+                "model": "deepseek-r1:8b",
+                "stream": false,
+                "temperature": 0.7,
+                "maxTokens": 1024
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/chat/stream": {
+      "get": {
+        "tags": [
+          "AI 聊天接口"
+        ],
+        "summary": "流式聊天",
+        "description": "返回 text/event-stream 文本流。",
+        "operationId": "streamChat",
+        "parameters": [
+          {
+            "name": "message",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "用户消息"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功开始流式传输",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "data: 你\n\ndata: 好\n\ndata: ，\n\ndata: 有什么可以帮你？\n"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/structured/stream": {
+      "post": {
+        "tags": [
+          "AI 聊天接口"
+        ],
+        "summary": "结构化流式聊天",
+        "description": "当前代码中该接口实际共用持久化流式实现链路，返回 text/event-stream。",
+        "operationId": "structuredStreamChat",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XUserIdHeaderOptional"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              },
+              "example": {
+                "message": "我想学习 Spring Boot，应该先学什么？",
+                "sessionId": "session-springboot-001",
+                "model": "deepseek-r1:8b",
+                "stream": true,
+                "temperature": 0.7,
+                "maxTokens": 1024
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE 响应，每个事件负载是 ChatResponse JSON",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "data: {\"content\":\"你\",\"model\":\"deepseek-r1:8b\",\"timestamp\":1744171200000,\"success\":true}\n\ndata: {\"content\":\"好\",\"model\":\"deepseek-r1:8b\",\"timestamp\":1744171200100,\"success\":true}\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/chat/structured/stream/persistent": {
+      "post": {
+        "tags": [
+          "AI 聊天接口"
+        ],
+        "summary": "持久化结构化流式聊天",
+        "description": "带会话记忆、数据库落库、Redis 短期记忆、摘要压缩与用户画像刷新链路的 SSE 接口。",
+        "operationId": "structuredStreamChatPersistent",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/XUserIdHeaderOptional"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              },
+              "example": {
+                "message": "我想学习 Spring Boot，应该先学什么？",
+                "sessionId": "session-springboot-001",
+                "model": "deepseek-r1:8b",
+                "stream": true,
+                "temperature": 0.7,
+                "maxTokens": 1024
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SSE 响应，每个事件负载是 ChatResponse JSON",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                },
+                "example": "data: {\"content\":\"你\",\"model\":\"deepseek-r1:8b\",\"timestamp\":1744171200000,\"success\":true}\n\ndata: {\"content\":\"好\",\"model\":\"deepseek-r1:8b\",\"timestamp\":1744171200100,\"success\":true}\n\ndata: {\"content\":\"议\",\"model\":\"deepseek-r1:8b\",\"timestamp\":1744171200400,\"success\":true,\"tokenUsage\":{\"promptTokens\":120,\"completionTokens\":35,\"totalTokens\":155}}\n"
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/chat/history/{sessionId}": {
+      "get": {
+        "tags": [
+          "AI 聊天接口"
+        ],
+        "summary": "查询对话历史",
+        "operationId": "getChatHistory",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SessionIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatMessage"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions": {
+      "get": {
+        "tags": [
+          "会话管理"
+        ],
+        "summary": "获取所有会话",
+        "operationId": "getAllSessions",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "query",
+            "required": false,
+            "description": "用户 ID",
+            "schema": {
+              "type": "string",
+              "default": "default-user"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatSession"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/user/{userId}": {
+      "get": {
+        "tags": [
+          "会话管理"
+        ],
+        "summary": "获取指定用户的所有会话",
+        "operationId": "getSessionsByUserId",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/UserIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChatSession"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{sessionId}": {
+      "get": {
+        "tags": [
+          "会话管理"
+        ],
+        "summary": "获取会话详情",
+        "operationId": "getSession",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SessionIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSession"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "会话管理"
+        ],
+        "summary": "删除会话",
+        "operationId": "deleteSession",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SessionIdPath"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "删除成功"
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/{sessionId}/rename": {
+      "put": {
+        "tags": [
+          "会话管理"
+        ],
+        "summary": "重命名会话",
+        "operationId": "renameSession",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SessionIdPath"
+          },
+          {
+            "name": "name",
+            "in": "query",
+            "required": true,
+            "description": "新的会话名称",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatSession"
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/ErrorChatResponse"
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "健康检查"
+        ],
+        "summary": "健康检查",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ping": {
+      "get": {
+        "tags": [
+          "健康检查"
+        ],
+        "summary": "Ping 测试",
+        "operationId": "ping",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "pong"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/monitor/metrics": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取系统指标",
+        "operationId": "getSystemMetrics",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreeFormObject"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务器错误"
+          }
+        }
+      }
+    },
+    "/api/monitor/overview": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "获取系统概览",
+        "operationId": "getSystemOverview",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreeFormObject"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务器错误",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FreeFormObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/monitor/refresh": {
+      "get": {
+        "tags": [
+          "系统监控"
+        ],
+        "summary": "刷新指标",
+        "operationId": "refreshMetrics",
+        "responses": {
+          "200": {
+            "description": "成功",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "指标已重新收集并打印到日志"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "服务器错误",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "UserIdPath": {
+        "name": "userId",
+        "in": "path",
+        "required": true,
+        "description": "用户 ID",
+        "schema": {
+          "type": "string",
+          "example": "550e8400-e29b-41d4-a716-446655440000"
+        }
+      },
+      "SessionIdPath": {
+        "name": "sessionId",
+        "in": "path",
+        "required": true,
+        "description": "会话 ID",
+        "schema": {
+          "type": "string",
+          "example": "session-springboot-001"
+        }
+      },
+      "XUserIdHeaderOptional": {
+        "name": "X-User-Id",
+        "in": "header",
+        "required": false,
+        "description": "用户 ID；请求头优先级高于请求体中的 userId",
+        "schema": {
+          "type": "string",
+          "example": "550e8400-e29b-41d4-a716-446655440000"
+        }
+      }
+    },
+    "responses": {
+      "ErrorChatResponse": {
+        "description": "错误响应",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ChatResponse"
+            },
+            "example": {
+              "content": null,
+              "model": null,
+              "timestamp": 1744171200000,
+              "success": false,
+              "errorMessage": "系统内部错误: 用户不存在：zhangsan",
+              "tokenUsage": null
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "guestLogin": {
+            "type": "boolean",
+            "description": "是否游客登录；为 true 时可不传用户名密码",
+            "default": false
+          },
+          "username": {
+            "type": "string",
+            "description": "用户名（登录名）",
+            "example": "zhangsan"
+          },
+          "password": {
+            "type": "string",
+            "description": "密码",
+            "example": "password123",
+            "format": "password"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "example": "550e8400-e29b-41d4-a716-446655440000"
+          },
+          "username": {
+            "type": "string",
+            "example": "zhangsan"
+          },
+          "nickname": {
+            "type": "string",
+            "example": "张三"
+          },
+          "phone": {
+            "type": "string",
+            "example": "13800138000"
+          },
+          "email": {
+            "type": "string",
+            "example": "zhangsan@example.com"
+          },
+          "password": {
+            "type": "string",
+            "example": "123456",
+            "description": "注意：当前 createUser / getUser 等接口直接返回 User 实体，可能包含该字段"
+          },
+          "gender": {
+            "$ref": "#/components/schemas/Gender"
+          },
+          "userStatus": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "userRole": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "homeAddress": {
+            "type": "string",
+            "example": "北京市朝阳区 XX 街道 XX 号"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UserResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "phone": {
+            "type": "string",
+            "nullable": true
+          },
+          "email": {
+            "type": "string",
+            "nullable": true
+          },
+          "gender": {
+            "$ref": "#/components/schemas/Gender"
+          },
+          "userStatus": {
+            "$ref": "#/components/schemas/UserStatus"
+          },
+          "userRole": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/UserRole"
+          },
+          "identityLabel": {
+            "type": "string",
+            "example": "普通用户"
+          },
+          "permissionSummary": {
+            "type": "string",
+            "example": "普通用户只能使用第二梯队模型"
+          },
+          "availableModels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AiModelResponse"
+            }
+          },
+          "homeAddress": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "AiModelResponse": {
+        "type": "object",
+        "properties": {
+          "modelCode": {
+            "type": "string",
+            "example": "deepseek-r1:8b"
+          },
+          "displayName": {
+            "type": "string",
+            "example": "DeepSeek R1 8B Local"
+          },
+          "providerCode": {
+            "type": "string",
+            "example": "ollama-local"
+          },
+          "apiModelName": {
+            "type": "string",
+            "example": "deepseek-r1:8b"
+          },
+          "level": {
+            "type": "integer",
+            "example": 2,
+            "description": "模型梯队，1 为第一梯队，2 为第二梯队"
+          },
+          "localModel": {
+            "type": "boolean",
+            "example": true
+          },
+          "supportsStream": {
+            "type": "boolean",
+            "example": true
+          },
+          "description": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ChatRequest": {
+        "type": "object",
+        "required": [
+          "message",
+          "stream"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "你好，介绍一下你自己"
+          },
+          "sessionId": {
+            "type": "string",
+            "example": "session-123"
+          },
+          "userId": {
+            "type": "string",
+            "example": "user-123"
+          },
+          "model": {
+            "type": "string",
+            "example": "deepseek-r1:8b"
+          },
+          "stream": {
+            "type": "boolean",
+            "default": false
+          },
+          "systemMessage": {
+            "type": "string",
+            "example": "你是一个专业、清晰、可靠的 AI 助手，默认使用中文回答。"
+          },
+          "temperature": {
+            "type": "number",
+            "format": "double",
+            "minimum": 0,
+            "maximum": 2,
+            "default": 0.7
+          },
+          "maxTokens": {
+            "type": "integer",
+            "default": 2048,
+            "example": 2048
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "description": "工具列表"
+          }
+        }
+      },
+      "ChatResponse": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "nullable": true,
+            "description": "AI 回复内容；流式时通常为片段"
+          },
+          "model": {
+            "type": "string",
+            "nullable": true,
+            "description": "使用的模型"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64",
+            "description": "响应时间戳"
+          },
+          "success": {
+            "type": "boolean",
+            "default": true
+          },
+          "errorMessage": {
+            "type": "string",
+            "nullable": true
+          },
+          "tokenUsage": {
+            "$ref": "#/components/schemas/TokenUsage"
+          }
+        }
+      },
+      "TokenUsage": {
+        "type": "object",
+        "properties": {
+          "promptTokens": {
+            "type": "integer"
+          },
+          "completionTokens": {
+            "type": "integer"
+          },
+          "totalTokens": {
+            "type": "integer"
+          }
+        },
+        "nullable": true
+      },
+      "ChatMessage": {
+        "type": "object",
+        "properties": {
+          "chatId": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "chatRole": {
+            "type": "string",
+            "example": "user",
+            "description": "system / user / assistant"
+          },
+          "contentType": {
+            "type": "string",
+            "example": "text"
+          },
+          "status": {
+            "type": "string",
+            "example": "completed"
+          },
+          "content": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ChatSession": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string"
+          },
+          "userName": {
+            "type": "string",
+            "nullable": true
+          },
+          "systemRole": {
+            "type": "string",
+            "nullable": true
+          },
+          "sessionName": {
+            "type": "string",
+            "nullable": true
+          },
+          "sessionStatus": {
+            "type": "string",
+            "example": "active"
+          },
+          "title": {
+            "type": "string",
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "HealthInfo": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "example": "UP"
+          },
+          "appName": {
+            "type": "string",
+            "example": "testDeepseekR1"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "aiModel": {
+            "type": "string",
+            "example": "deepseek-r1:8b"
+          },
+          "message": {
+            "type": "string",
+            "example": "AI聊天服务运行正常"
+          }
+        },
+        "additionalProperties": true
+      },
+      "FreeFormObject": {
+        "type": "object",
+        "additionalProperties": true
+      },
+      "Gender": {
+        "type": "string",
+        "enum": [
+          "MALE",
+          "FEMALE",
+          "OTHER"
+        ]
+      },
+      "UserStatus": {
+        "type": "string",
+        "enum": [
+          "ACTIVE",
+          "INACTIVE",
+          "BANNED"
+        ]
+      },
+      "UserRole": {
+        "type": "string",
+        "enum": [
+          "GUEST",
+          "USER",
+          "VIP",
+          "ADMIN"
+        ]
+      }
+    }
+  }
+}
+
+
