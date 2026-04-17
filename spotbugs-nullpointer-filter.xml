@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Only report null pointer related bugs -->
+    <Match>
+        <Bug category="CORRECTNESS"/>
+        <Or>
+            <Bug pattern="NP_NULL_ON_SOME_PATH"/>
+            <Bug pattern="NP_NULL_ON_SOME_PATH_FROM_RETURN_VALUE"/>
+            <Bug pattern="NP_NULL_ON_SOME_PATH_EXCEPTION"/>
+            <Bug pattern="NP_NULL_ON_SOME_PATH_MIGHT_BE_INFEASIBLE"/>
+            <Bug pattern="NP_NULL_PARAM_DEREF"/>
+            <Bug pattern="NP_NULL_PARAM_DEREF_ALL_TARGETS_DANGEROUS"/>
+            <Bug pattern="NP_NULL_PARAM_DEREF_NONVIRTUAL"/>
+            <Bug pattern="NP_NONNULL_FIELD_NOT_INITIALIZED_IN_CONSTRUCTOR"/>
+            <Bug pattern="NP_NONNULL_PARAM_VIOLATION"/>
+            <Bug pattern="NP_NONNULL_RETURN_VIOLATION"/>
+            <Bug pattern="NP_ALWAYS_NULL"/>
+            <Bug pattern="NP_ALWAYS_NULL_EXCEPTION"/>
+            <Bug pattern="NP_ARGUMENT_MIGHT_BE_NULL"/>
+            <Bug pattern="NP_DEREFERENCE_OF_READLINE_VALUE"/>
+            <Bug pattern="NP_GUARANTEED_DEREF"/>
+            <Bug pattern="NP_GUARANTEED_DEREF_ON_EXCEPTION_PATH"/>
+            <Bug pattern="NP_LOAD_OF_KNOWN_NULL_VALUE"/>
+            <Bug pattern="NP_METHOD_PARAMETER_TIGHTENS_ANNOTATION"/>
+            <Bug pattern="NP_METHOD_RETURN_RELAXING_ANNOTATION"/>
+            <Bug pattern="NP_OPTIONAL_RETURN_NULL"/>
+            <Bug pattern="NP_STORE_INTO_NONNULL_FIELD"/>
+            <Bug pattern="NP_UNWRITTEN_FIELD"/>
+            <Bug pattern="NP_UNWRITTEN_PUBLIC_OR_PROTECTED_FIELD"/>
+        </Or>
+    </Match>
+</FindBugsFilter>

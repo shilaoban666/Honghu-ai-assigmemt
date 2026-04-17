@@ -158,6 +158,17 @@
                     <mainClass>com.honghu.ut.test.ai.assigment.testdeepseekr1.service.AiTest</mainClass>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>4.8.3.1</version>
+                <configuration>
+                    <includeFilterFile>${project.basedir}/spotbugs-nullpointer-filter.xml</includeFilterFile>
+                    <effort>Max</effort>
+                    <threshold>Low</threshold>
+                    <failOnError>true</failOnError>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
