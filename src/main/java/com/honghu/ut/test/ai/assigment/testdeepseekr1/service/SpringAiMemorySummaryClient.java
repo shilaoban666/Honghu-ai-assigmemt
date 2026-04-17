@@ -1,14 +1,11 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
-import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.ollama.OllamaChatModel;
-import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.stereotype.Component;
-
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
 
 import java.util.List;
 
@@ -22,29 +19,27 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SpringAiMemorySummaryClient implements MemorySummaryClient {
 
-    private final OllamaChatModel ollamaChatModel;
+  private final AiModelAccessService aiModelAccessService;
+  private final AiChatModelGatewayService aiChatModelGatewayService;
     private final ChatMemoryConfig chatMemoryConfig;
 
     @Override
     public String generateSummary(String model, String systemPrompt, String userPrompt) {
-        // 摘要调用使用独立配置参数，避免把主聊天模型的采样策略误带到压缩任务中。
-        OllamaOptions options = OllamaOptions.create()
-                .withModel(model)
-                .withTemperature(chatMemoryConfig.getSummaryTemperature())
-                .withNumPredict(chatMemoryConfig.getSummaryMaxTokens());
+        AiModelDefinition summaryModel = aiModelAccessService.requireEnabledModel(model);
 
-        // 这里保持最小 Prompt 结构：一个 system 负责约束摘要要求，一个 user 负责携带待压缩原文。
-        Prompt prompt = new Prompt(
-                List.of(
-                        new SystemMessage(systemPrompt),
-                        new UserMessage(userPrompt)
-                ),
-                options
-        );
-
-        // 只返回摘要正文，具体的存库、缓存和 SystemMessage 包装由上层服务统一处理。
-        var response = ollamaChatModel.call(prompt);
-        return response.getResult().getOutput().getContent();
+        // 摘要调用同样走统一模型网关，这样就能自动复用：
+        // 1. 外部 provider 适配
+        // 2. 本地 Ollama 不可用时的云端回退
+        // 3. 一致的温度 / maxTokens 参数控制
+        return aiChatModelGatewayService.chat(
+            summaryModel,
+            List.of(
+                new SystemMessage(systemPrompt),
+                new UserMessage(userPrompt)
+            ),
+            chatMemoryConfig.getSummaryTemperature(),
+            chatMemoryConfig.getSummaryMaxTokens()
+        ).getContent();
     }
 }
 

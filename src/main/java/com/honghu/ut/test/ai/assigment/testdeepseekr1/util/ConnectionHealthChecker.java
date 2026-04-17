@@ -1,5 +1,6 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.util;
 
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,20 +25,30 @@ public class ConnectionHealthChecker {
     @Value("${app.ai.connection.health-check-interval:30000}") // 默认30秒检查一次
     private long healthCheckInterval;
     
-    private volatile boolean lastCheckSuccess = true;
-    private volatile LocalDateTime lastCheckTime = LocalDateTime.now();
+    private volatile Boolean lastCheckSuccess;
+    private volatile LocalDateTime lastCheckTime;
     private volatile String lastErrorMessage = "";
+
+    /**
+     * 启动完成后立即做一次轻量探测，提前把“本地 Ollama 是否可用”的真实状态加载到内存里。
+     *
+     * <p>这样首个请求在模型路由时就能拿到更准确的结果，避免第一次请求才发现本地端口没开。</p>
+     */
+    @PostConstruct
+    public void initializeStatus() {
+        forceCheck();
+    }
 
     /**
      * 定时健康检查任务
      * 每30秒检查一次Ollama服务连接状态
      */
-    @Scheduled(fixedRateString = "${app.ai.connection.health-check-interval:30000}")
+//    @Scheduled(fixedRateString = "${app.ai.connection.health-check-interval:30000}")
     public void checkConnectionHealth() {
         try {
             boolean isConnected = checkOllamaConnection();
             
-            if (isConnected != lastCheckSuccess) {
+            if (lastCheckSuccess == null || isConnected != lastCheckSuccess) {
                 if (isConnected) {
                     log.info("✅ Ollama服务连接恢复正常");
                 } else {
@@ -101,11 +112,30 @@ public class ConnectionHealthChecker {
      */
     public ConnectionStatus getConnectionStatus() {
         return ConnectionStatus.builder()
-                .connected(lastCheckSuccess)
+                .connected(Boolean.TRUE.equals(lastCheckSuccess))
                 .lastCheckTime(lastCheckTime)
                 .lastErrorMessage(lastErrorMessage)
                 .ollamaUrl(ollamaBaseUrl)
                 .build();
+    }
+
+    /**
+     * 获取当前本地 Ollama 是否可用。
+     *
+     * <p>若缓存状态还未初始化，或距离上次检查时间已经超过配置间隔，
+     * 会自动触发一次实时探测，避免一直使用过期结果。</p>
+     */
+    public boolean isOllamaAvailable() {
+        LocalDateTime now = LocalDateTime.now();
+        if (lastCheckSuccess == null || lastCheckTime == null) {
+            return forceCheck();
+        }
+
+        long elapsedMillis = java.time.Duration.between(lastCheckTime, now).toMillis();
+        if (elapsedMillis >= healthCheckInterval) {
+            return forceCheck();
+        }
+        return Boolean.TRUE.equals(lastCheckSuccess);
     }
 
     /**

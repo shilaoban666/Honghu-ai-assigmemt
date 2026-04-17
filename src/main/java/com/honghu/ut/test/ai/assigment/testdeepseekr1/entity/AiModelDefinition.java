@@ -53,6 +53,17 @@ public class AiModelDefinition {
     @Column(name = "level", nullable = false)
     private Integer level;
 
+     /**
+     * 模型得分。
+     *
+     * <p>该值用于同一梯队内部排序，数值越大越靠前。
+     * 例如两个模型都属于第二梯队时，会优先把 score 更高的模型排在前面。</p>
+     */
+    @Builder.Default
+      //noinspection JpaDataSourceORMInspection
+    @Column(name = "score", nullable = false)
+    private Integer score = 0;
+
     /** 是否是本地模型（localhost / Ollama）。 */
     @Builder.Default
     @Column(name = "local_model", nullable = false)

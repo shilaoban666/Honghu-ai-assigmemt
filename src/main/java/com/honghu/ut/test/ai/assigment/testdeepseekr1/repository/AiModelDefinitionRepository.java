@@ -11,11 +11,11 @@ import java.util.Optional;
 @Repository
 public interface AiModelDefinitionRepository extends JpaRepository<AiModelDefinition, String> {
 
-    List<AiModelDefinition> findByEnabledTrueOrderByLevelAscDisplayNameAsc();
+    List<AiModelDefinition> findByEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc();
 
-    List<AiModelDefinition> findByLocalModelTrueAndEnabledTrueOrderByLevelAscDisplayNameAsc();
+    List<AiModelDefinition> findByLocalModelTrueAndEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc();
 
-    List<AiModelDefinition> findByModelCodeInAndEnabledTrueOrderByLevelAscDisplayNameAsc(Collection<String> modelCodes);
+    List<AiModelDefinition> findByModelCodeInAndEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc(Collection<String> modelCodes);
 
     Optional<AiModelDefinition> findByModelCodeAndEnabledTrue(String modelCode);
 }

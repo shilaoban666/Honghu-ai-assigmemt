@@ -3,7 +3,6 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.UserModelPermission;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.AiModelDefinitionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserModelPermissionRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +28,7 @@ class AiModelAccessServiceTest {
 
     private AiModelDefinition localTier2;
     private AiModelDefinition remoteTier2;
+    private AiModelDefinition deepseekFallback;
     private AiModelDefinition remoteTier1;
 
     @BeforeEach
@@ -45,6 +45,7 @@ class AiModelAccessServiceTest {
                 .providerCode("ollama-local")
                 .apiModelName("deepseek-r1:8b")
                 .level(2)
+                .score(45)
                 .localModel(true)
                 .enabled(true)
                 .build();
@@ -54,6 +55,17 @@ class AiModelAccessServiceTest {
                 .providerCode("openai")
                 .apiModelName("gpt-5-mini")
                 .level(2)
+                .score(30)
+                .localModel(false)
+                .enabled(true)
+                .build();
+        deepseekFallback = AiModelDefinition.builder()
+                .modelCode("deepseek-v3.2")
+                .displayName("deepseek fallback")
+                .providerCode("deepseek-cloud")
+                .apiModelName("deepseek-v3.2")
+                .level(2)
+                .score(60)
                 .localModel(false)
                 .enabled(true)
                 .build();
@@ -63,23 +75,24 @@ class AiModelAccessServiceTest {
                 .providerCode("openai")
                 .apiModelName("gpt-5.1")
                 .level(1)
+                .score(80)
                 .localModel(false)
                 .enabled(true)
                 .build();
 
-        when(aiModelDefinitionRepository.findByEnabledTrueOrderByLevelAscDisplayNameAsc())
-                .thenReturn(List.of(remoteTier1, localTier2, remoteTier2));
+        when(aiModelDefinitionRepository.findByEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc())
+                .thenReturn(List.of(remoteTier1, deepseekFallback, localTier2, remoteTier2));
     }
 
     @Test
-    void guestShouldOnlyAccessLocalTierTwoModels() {
+    void guestShouldOnlyAccessTierTwoModels() {
         List<AiModelDefinition> accessible = aiModelAccessService.listAccessibleModels(
                 User.builder().userRole(User.UserRole.GUEST).build()
         );
 
         assertThat(accessible)
                 .extracting(AiModelDefinition::getModelCode)
-                .containsExactly("deepseek-r1:8b");
+                .containsExactly("deepseek-v3.2", "deepseek-r1:8b", "gpt-5-mini");
     }
 
     @Test
@@ -91,21 +104,27 @@ class AiModelAccessServiceTest {
 
         assertThat(accessible)
                 .extracting(AiModelDefinition::getModelCode)
-                .containsExactly("deepseek-r1:8b", "gpt-5-mini");
+                .containsExactly("deepseek-v3.2", "deepseek-r1:8b", "gpt-5-mini");
     }
 
     @Test
-    void vipWithExplicitPermissionShouldBeIntersectedByPermissionTable() {
+    void vipShouldStillAccessAllModelsEvenWhenPermissionTableHasSubset() {
         User user = User.builder().userId("u2").userRole(User.UserRole.VIP).build();
-        when(userModelPermissionRepository.findByUserIdAndEnabledTrue("u2")).thenReturn(List.of(
-                UserModelPermission.builder().userId("u2").modelCode("gpt-5.1").enabled(true).build()
-        ));
 
         List<AiModelDefinition> accessible = aiModelAccessService.listAccessibleModels(user);
 
         assertThat(accessible)
                 .extracting(AiModelDefinition::getModelCode)
-                .containsExactly("gpt-5.1");
+                .containsExactly("gpt-5.1", "deepseek-v3.2", "deepseek-r1:8b", "gpt-5-mini");
+    }
+
+    @Test
+    void shouldPreferConfiguredRemoteFallbackWhenLocalUnavailable() {
+        User guest = User.builder().userRole(User.UserRole.GUEST).build();
+
+        AiModelDefinition fallback = aiModelAccessService.resolveFallbackModelWhenLocalUnavailable(guest, "deepseek-v3.2");
+
+        assertThat(fallback).isNotNull();
+        assertThat(fallback.getModelCode()).isEqualTo("deepseek-v3.2");
     }
 }
-

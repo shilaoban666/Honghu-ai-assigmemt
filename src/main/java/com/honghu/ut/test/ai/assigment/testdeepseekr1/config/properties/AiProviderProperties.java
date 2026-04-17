@@ -19,7 +19,7 @@ import java.util.Map;
 public class AiProviderProperties {
 
     /** 默认模型编码。 */
-    private String defaultModel = "deepseek-r1:8b";
+    private String defaultModel = "deepseek-chat";
 
     /** 连接健康检查间隔，保留兼容已有配置。 */
     private long connectionHealthCheckInterval = 30000L;
@@ -33,6 +33,15 @@ public class AiProviderProperties {
 
     /** 简单/复杂问题的默认路由配置。 */
     private Routing routing = new Routing();
+
+    /**
+     * 本地 Ollama 不可用时的自动回退配置。
+     *
+     * <p>目标是让系统“优先本地、失败回云端”：
+     * 当用户请求命中了本地模型，但本机没有启动 Ollama 时，
+     * 可以自动切换到配置好的 DeepSeek 云端基础模型，而不是把连接异常直接暴露给用户。</p>
+     */
+    private LocalModelFallback localModelFallback = new LocalModelFallback();
 
     /**
      * 多 provider 配置。
@@ -67,6 +76,36 @@ public class AiProviderProperties {
 
         /** 是否保持连接复用 / 失败重试。 */
         private boolean keepAlive = true;
+    }
+
+    @Data
+    public static class LocalModelFallback {
+        /**
+         * 是否启用“本地模型不可用 -> 云端模型”自动回退。
+         */
+        private boolean enabled = true;
+
+        /**
+         * 本地 provider 编码。
+         *
+         * <p>当前默认是 {@code ollama-local}，需要与数据库中的
+         * {@code ai_model_definition.provider_code} 保持一致。</p>
+         */
+        private String localProviderCode = "ollama-local";
+
+        /**
+         * 首选云端回退模型编码。
+         *
+         * <p>例如：{@code deepseek-chat}。</p>
+         */
+        private String fallbackModel = "deepseek-chat";
+
+        /**
+         * 是否在模型路由阶段先探测一次本地 Ollama 连通性。
+         *
+         * <p>开启后，可在真正发请求前就提前切到云端，避免一次无意义的本地连接失败重试。</p>
+         */
+        private boolean probeBeforeRoute = true;
     }
 
     @Data
