@@ -3,17 +3,18 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.DefaultSystemPromptProvider;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -23,10 +24,6 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class ChatServiceRoutingTest {
 
-    @Mock
-    private OllamaChatModel ollamaChatModel;
-    @Mock
-    private ChatClient.Builder chatClientBuilder;
     @Mock
     private ChatSessionRepository chatSessionRepository;
     @Mock
@@ -38,8 +35,6 @@ class ChatServiceRoutingTest {
     @Mock
     private ChatMemoryService chatMemoryService;
     @Mock
-    private ChatMemoryConfig chatMemoryConfig;
-    @Mock
     private DefaultSystemPromptProvider defaultSystemPromptProvider;
     @Mock
     private ChatSummaryService chatSummaryService;
@@ -47,6 +42,8 @@ class ChatServiceRoutingTest {
     private AiModelAccessService aiModelAccessService;
     @Mock
     private AiChatModelGatewayService aiChatModelGatewayService;
+    @Mock
+    private ConnectionHealthChecker connectionHealthChecker;
 
     private ChatService chatService;
 
@@ -55,7 +52,6 @@ class ChatServiceRoutingTest {
         ChatMemoryConfig chatMemoryConfig = new ChatMemoryConfig();
         AiProviderProperties aiProviderProperties = new AiProviderProperties();
         chatService = new ChatService(
-                chatClientBuilder,
                 chatSessionRepository,
                 chatMessageRepository,
                 userRepository,
@@ -66,7 +62,8 @@ class ChatServiceRoutingTest {
                 chatSummaryService,
                 aiModelAccessService,
                 aiChatModelGatewayService,
-                aiProviderProperties
+                aiProviderProperties,
+                connectionHealthChecker
         );
     }
 
@@ -218,6 +215,37 @@ class ChatServiceRoutingTest {
         assertThat(merged)
                 .extracting(ChatMessage::getContent)
                 .containsExactly("上一轮回复", "当前问题");
+    }
+
+    @Test
+    void shouldSwitchToCloudFallbackWhenLocalModelUnavailable() {
+        User guest = User.builder().userRole(User.UserRole.GUEST).build();
+        AiModelDefinition localModel = AiModelDefinition.builder()
+                .modelCode("deepseek-r1:8b")
+                .providerCode("ollama-local")
+                .localModel(true)
+                .build();
+        AiModelDefinition fallbackModel = AiModelDefinition.builder()
+                .modelCode("deepseek-v3.2")
+                .providerCode("deepseek-cloud")
+                .localModel(false)
+                .build();
+
+        when(aiModelAccessService.resolveModelForChat(guest, null, "deepseek-r1:8b")).thenReturn(localModel);
+        when(connectionHealthChecker.isOllamaAvailable()).thenReturn(false);
+        when(aiModelAccessService.resolveFallbackModelWhenLocalUnavailable(guest, "deepseek-v3.2")).thenReturn(fallbackModel);
+
+        AiModelDefinition resolved = ReflectionTestUtils.invokeMethod(
+                chatService,
+                "resolveChatModelDefinition",
+                guest,
+                null,
+                "你好",
+                null
+        );
+
+        assertThat(resolved).isNotNull();
+        assertThat(resolved.getModelCode()).isEqualTo("deepseek-v3.2");
     }
 }
 

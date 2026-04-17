@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
  *
  * <p>当前身份规则：</p>
  * <ul>
- *     <li>GUEST：仅本地 + 第二梯队模型</li>
+ *     <li>GUEST：全部第二梯队模型</li>
  *     <li>USER：全部第二梯队模型</li>
  *     <li>VIP：全部启用模型</li>
  *     <li>ADMIN：全部启用模型</li>
@@ -49,24 +49,27 @@ public class AiModelAccessService {
 
     /** 查询全部已启用模型目录。 */
     public List<AiModelDefinition> listAllEnabledModels() {
-        return aiModelDefinitionRepository.findByEnabledTrueOrderByLevelAscDisplayNameAsc();
+        return aiModelDefinitionRepository.findByEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc();
     }
 
     /**
      * 查询当前用户可用模型。
      *
-     * <p>这里不是简单读权限表，而是先算“角色基线能力”，再与个性化授权求交集：</p>
+     * <p>这里不是简单读权限表，而是先算"角色基线能力"，再与个性化授权求交集：</p>
      * <ul>
-     *     <li>没有个性化授权记录时，直接返回角色基线能力</li>
-     *     <li>有个性化授权记录时，返回“角色基线 ∩ 显式授权”</li>
+     *     <li>ADMIN 和 VIP 用户：直接返回所有启用的模型，不受权限表限制</li>
+     *     <li>GUEST 用户：返回第二梯队模型，不受权限表限制</li>
+     *     <li>USER 用户：没有个性化授权记录时，直接返回角色基线能力；有个性化授权记录时，返回"角色基线 ∩ 显式授权"</li>
      * </ul>
      */
     public List<AiModelDefinition> listAccessibleModels(User user) {
         List<AiModelDefinition> roleBasedModels = listRoleScopedModels(user);
-        if (user == null || !StringUtils.hasText(user.getUserId()) || user.getUserRole() == User.UserRole.GUEST) {
+
+        // ADMIN 和 VIP 用户拥有所有模型的完整权限，不受权限表限制
+        if (user != null && (user.getUserRole() == User.UserRole.ADMIN || user.getUserRole() == User.UserRole.VIP)) {
             return roleBasedModels;
         }
-
+        // USER 用户需要检查权限表
         List<String> explicitPermissionCodes = userModelPermissionRepository.findByUserIdAndEnabledTrue(user.getUserId())
                 .stream()
                 .map(UserModelPermission::getModelCode)
@@ -151,14 +154,46 @@ public class AiModelAccessService {
      */
     public String resolvePermissionSummary(User.UserRole role) {
         if (role == null) {
-            return "游客只能使用普通模型（默认限制为本地 + 第二梯队模型）";
+            return "游客只能使用第二梯队普通模型";
         }
         return switch (role) {
-            case GUEST -> "游客只能使用普通模型（默认限制为本地 + 第二梯队模型）";
+            case GUEST -> "游客只能使用第二梯队普通模型";
             case USER -> "普通用户只能使用第二梯队模型";
             case VIP -> "VIP用户可以使用全部梯队模型";
             case ADMIN -> "admin用户可以使用全部梯队模型，并拥有全量管理权限";
         };
+    }
+
+    /**
+     * 在本地 Ollama 不可用时，解析一个当前用户仍可使用的云端回退模型。
+     *
+     * <p>优先级：</p>
+     * <ol>
+     *     <li>优先使用配置中指定的首选回退模型（且该模型对当前用户可用）</li>
+     *     <li>否则退化为当前用户可用模型列表中的第一个“非本地模型”</li>
+     *     <li>如果当前用户没有任何远端模型权限，则返回空，由上层决定是否继续尝试本地模型</li>
+     * </ol>
+     */
+    public AiModelDefinition resolveFallbackModelWhenLocalUnavailable(User user, String preferredFallbackModelCode) {
+        List<AiModelDefinition> accessibleModels = listAccessibleModels(user);
+        if (accessibleModels.isEmpty()) {
+            return null;
+        }
+
+        if (StringUtils.hasText(preferredFallbackModelCode)) {
+            AiModelDefinition preferredModel = accessibleModels.stream()
+                    .filter(model -> preferredFallbackModelCode.equals(model.getModelCode()))
+                    .findFirst()
+                    .orElse(null);
+            if (preferredModel != null) {
+                return preferredModel;
+            }
+        }
+
+        return accessibleModels.stream()
+                .filter(model -> !Boolean.TRUE.equals(model.getLocalModel()))
+                .findFirst()
+                .orElse(null);
     }
 
     /**
@@ -172,7 +207,7 @@ public class AiModelAccessService {
             return;
         }
 
-        List<AiModelDefinition> defaultLocalModels = aiModelDefinitionRepository.findByLocalModelTrueAndEnabledTrueOrderByLevelAscDisplayNameAsc();
+        List<AiModelDefinition> defaultLocalModels = aiModelDefinitionRepository.findByLocalModelTrueAndEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc();
         if (defaultLocalModels.isEmpty()) {
             return;
         }
@@ -222,7 +257,7 @@ public class AiModelAccessService {
 
         List<AiModelDefinition> targetModels = targetCodes.isEmpty()
                 ? List.of()
-                : aiModelDefinitionRepository.findByModelCodeInAndEnabledTrueOrderByLevelAscDisplayNameAsc(targetCodes);
+                : aiModelDefinitionRepository.findByModelCodeInAndEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc(targetCodes);
         if (targetModels.size() != targetCodes.size()) {
             Set<String> foundCodes = targetModels.stream().map(AiModelDefinition::getModelCode).collect(Collectors.toSet());
             Set<String> missingCodes = new LinkedHashSet<>(targetCodes);
@@ -291,7 +326,6 @@ public class AiModelAccessService {
                     .filter(model -> model.getLevel() != null && model.getLevel() >= 2)
                     .toList();
             case GUEST -> allModels.stream()
-                    .filter(model -> Boolean.TRUE.equals(model.getLocalModel()))
                     .filter(model -> model.getLevel() != null && model.getLevel() >= 2)
                     .toList();
         };
