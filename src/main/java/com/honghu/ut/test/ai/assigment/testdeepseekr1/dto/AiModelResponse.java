@@ -32,6 +32,9 @@ public class AiModelResponse {
 	@Schema(description = "模型梯队，1 为第一梯队，2 为第二梯队", example = "1")
 	private Integer level;
 
+	@Schema(description = "模型得分，同一梯队内按得分倒序排序", example = "57")
+	private Integer score;
+
 	@Schema(description = "是否本地模型", example = "false")
 	private Boolean localModel;
 
@@ -48,6 +51,7 @@ public class AiModelResponse {
 				.providerCode(model.getProviderCode())
 				.apiModelName(model.getApiModelName())
 				.level(model.getLevel())
+				.score(model.getScore())
 				.localModel(model.getLocalModel())
 				.supportsStream(model.getSupportsStream())
 				.description(model.getDescription())

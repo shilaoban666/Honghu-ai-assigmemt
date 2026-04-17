@@ -12,6 +12,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
 import com.knuddels.jtokkit.Encodings;
 import com.knuddels.jtokkit.api.Encoding;
 import com.knuddels.jtokkit.api.EncodingRegistry;
@@ -21,7 +22,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jetbrains.annotations.NotNull;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -48,7 +48,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ChatService {
 
-    private final ChatClient.Builder chatClientBuilder;
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final UserRepository userRepository;
@@ -60,6 +59,7 @@ public class ChatService {
     private final AiModelAccessService aiModelAccessService;
     private final AiChatModelGatewayService aiChatModelGatewayService;
     private final AiProviderProperties aiProviderProperties;
+    private final ConnectionHealthChecker connectionHealthChecker;
 
     // 流式响应日志配置（可通过 YAML 控制）
     // 在 application.yml 中设置：chat.streaming.log.enabled=true 开启详细日志
@@ -217,21 +217,21 @@ public class ChatService {
 
 
         // 步骤 0: 智能模型路由策略
-        // 如果用户未指定模型，系统将根据问题复杂度自动选择合适的模型
-        // - 简单问题/闲聊 -> 8B 小模型 (响应快，成本低)
-        // - 复杂任务/代码 -> 32B 大模型 (能力强，更精准)
+        /*如果用户未指定模型，系统将根据问题复杂度自动选择合适的模型
+        - 简单问题/闲聊 ->  小模型 (响应快，成本低)
+        - 复杂任务/代码 ->  大模型 (能力强，更精准)
+         */
         String originalModel = request.getModel();
         String messageContent = request.getMessage() != null ? request.getMessage() : "";
-
         AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(messageContent).orElse(null);
         User chatUser = userRepository.findById(request.getUserId()).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
         AiModelDefinition selectedModel = resolveChatModelDefinition(chatUser, originalModel, messageContent, taskKeywordMatch);
         request.setModel(selectedModel.getModelCode());
-
         // 仅在发生模型切换或自动选择时记录 Info 日志
         if (originalModel == null || originalModel.isEmpty() || !originalModel.equals(selectedModel.getModelCode())) {
             log.info("模型自动路由生效：输入长度={}, 目标模型={}, 已加载任务分类={}", messageContent.length(), selectedModel.getModelCode(), aiTaskKeywordService.getKeywordsGroupedByTaskType().keySet());
         }
+
 
         // 步骤 1: 确保会话存在，如不存在则创建新会话
         String sessionId = request.getSessionId();
@@ -241,28 +241,29 @@ public class ChatService {
             request.setSessionId(sessionId);
         }
         String userId = request.getUserId();
-
-        final String finalSessionId = sessionId;  // 用于 lambda 表达式中的 final 变量
-
+        // 用于 lambda 表达式中的 final 变量
+        final String finalSessionId = sessionId;
         // 查询会话是否存在，如果不存在则创建新会话
         ChatSession session = chatSessionRepository.findById(finalSessionId).orElseGet(() -> {
             // 构建新的会话对象
-            ChatSession newSession = ChatSession.builder().sessionId(finalSessionId)              // 设置会话 ID
-                    .userId(chatUser.getUserId())// 设置用户 ID
-                    .userName(chatUser.getUsername()).systemRole(request.getSystemMessage()) // 设置系统角色/提示词
-                    .sessionName(request.getMessage().substring(0, Math.min(request.getMessage().length(), 64)))                   // 默认会话名称
-                    .sessionStatus("active")                // 会话状态设为活跃
+            ChatSession newSession = ChatSession.builder()
+                    .sessionId(finalSessionId)          // 设置会话 ID
+                    .userId(chatUser.getUserId())       // 设置用户 ID
+                    .userName(chatUser.getUsername()).systemRole(request.getSystemMessage())                    // 设置系统角色/提示词
+                    .sessionName(request.getMessage().substring(0, Math.min(request.getMessage().length(), 64)))// 默认会话名称
+                    .sessionStatus("active")            // 会话状态设为活跃
                     .build();
             // 保存新会话到数据库
             return chatSessionRepository.save(newSession);
         });
-
         if ((request.getSystemMessage() == null || request.getSystemMessage().isBlank()) && session.getSystemRole() != null && !session.getSystemRole().isBlank()) {
             request.setSystemMessage(session.getSystemRole());
         } else if (request.getSystemMessage() != null && !request.getSystemMessage().isBlank() && !request.getSystemMessage().equals(session.getSystemRole())) {
             session.setSystemRole(request.getSystemMessage());
             chatSessionRepository.save(session);
         }
+
+
 
         // 步骤 2: 保存用户消息到数据库
         ChatMessage userMsg = ChatMessage.builder().sessionId(finalSessionId)      // 关联到当前会话
@@ -278,6 +279,8 @@ public class ChatService {
         // 2. Redis 只保存“短期工作记忆”，它是数据库的派生缓存，而不是唯一事实来源。
         // 3. 因此这里采取“先写数据库，提交后再写 Redis”的策略，避免 DB 回滚但 Redis 已提前暴露。
         chatMemoryService.appendMessageAfterCommit(userMsg);
+
+
 
 
         // 步骤 3: 获取当前会话的历史消息记录
@@ -298,6 +301,8 @@ public class ChatService {
         int historyTokenLimit = resolveHistoryTokenLimit(systemPrompt, memorySystemPrompts);
         // 从新到旧累计 token，达到阈值立刻停止，拿到最近一段连续上下文
         List<ChatMessage> selectedHistory = selectHistoryMessagesByTokenLimit(history, historyTokenLimit);
+
+
 
 
         // 步骤 4: 执行流式聊天并保存 AI 回复
@@ -763,8 +768,52 @@ public class ChatService {
     }
 
     private AiModelDefinition resolveChatModelDefinition(User user, String requestedModel, String question, AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch) {
-        String autoRoutedModel = routeModelByQuestionLength(question, null, taskKeywordMatch);
-        return aiModelAccessService.resolveModelForChat(user, requestedModel, autoRoutedModel);
+        String autoRoutedModel = routeModelByQuestionLength(question, requestedModel, taskKeywordMatch);
+        AiModelDefinition resolvedModel = aiModelAccessService.resolveModelForChat(user, requestedModel, autoRoutedModel);
+        return maybeSwitchToCloudBaseModel(user, resolvedModel);
+    }
+
+    /**
+     * 当原本选中了本地 Ollama 模型，但检测到本地服务未启动时，
+     * 在真正发请求前提前切换到可访问的云端基础模型。
+     *
+     * <p>这样做有两个好处：</p>
+     * <ol>
+     *     <li>避免先打一枪本地端口再超时报错，降低首包延迟</li>
+     *     <li>保证“本地没启动也能继续聊”，把 DeepSeek 云端作为稳定兜底</li>
+     * </ol>
+     */
+    private AiModelDefinition maybeSwitchToCloudBaseModel(User user, AiModelDefinition resolvedModel) {
+        if (resolvedModel == null) {
+            return null;
+        }
+
+        AiProviderProperties.LocalModelFallback fallbackConfig = aiProviderProperties.getLocalModelFallback();
+        if (fallbackConfig == null || !fallbackConfig.isEnabled()) {
+            return resolvedModel;
+        }
+        if (!fallbackConfig.isProbeBeforeRoute()) {
+            return resolvedModel;
+        }
+        if (!fallbackConfig.getLocalProviderCode().equals(resolvedModel.getProviderCode())) {
+            return resolvedModel;
+        }
+        if (connectionHealthChecker.isOllamaAvailable()) {
+            return resolvedModel;
+        }
+
+        AiModelDefinition fallbackModel = aiModelAccessService.resolveFallbackModelWhenLocalUnavailable(
+                user,
+                fallbackConfig.getFallbackModel()
+        );
+        if (fallbackModel == null) {
+            log.warn("检测到本地 Ollama 不可用，但当前用户没有可访问的云端回退模型，继续保留原模型：{}", resolvedModel.getModelCode());
+            return resolvedModel;
+        }
+
+        log.warn("检测到本地 Ollama 未启动，模型将从 {} 自动切换到云端回退模型 {}",
+                resolvedModel.getModelCode(), fallbackModel.getModelCode());
+        return fallbackModel;
     }
 
     /**

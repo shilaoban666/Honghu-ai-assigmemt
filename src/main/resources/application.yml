@@ -1,14 +1,14 @@
 spring:
   application:
     name: testDeepseekR1
-  
+
   # 静态资源配置
   web:
     resources:
       static-locations: classpath:/static/
       cache:
         period: 3600
-  
+
   # Spring AI Ollama Configuration
   ai:
     ollama:
@@ -30,7 +30,7 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
-      password: ${REDIS_PASSWORD:12345}
+#      password: ${REDIS_PASSWORD:12345}
       timeout: 2s
       repositories:
         enabled: false
@@ -100,14 +100,28 @@ app:
     # - providers: 不同模型提供商的 base-url / key / header 配置
     #   其中 ollama-local 为本地 localhost 模型，不使用 API Key
     # =========================
-    default-model: ${APP_AI_DEFAULT_MODEL:deepseek-r1:8b}
+    # 默认兜底模型：当自动路由模型不可用时，优先退到这个模型。
+    # 这里默认改成 DeepSeek 云端基础模型，确保本地没启动 Ollama 时仍然可以稳定兜底。
+    default-model: ${APP_AI_DEFAULT_MODEL:deepseek-chat}
     default-temperature: 0.7
     connection-health-check-interval: ${APP_AI_CONNECTION_HEALTH_CHECK_INTERVAL:30000}
 
     routing:
+      # 简单/复杂问题仍然优先走本地模型；
+      # 如果本地 Ollama 未启动，代码会自动切换到 local-model-fallback.fallback-model。
       simple-query-length-threshold: ${APP_AI_SIMPLE_QUERY_LENGTH_THRESHOLD:20}
       simple-default-model: ${APP_AI_SIMPLE_DEFAULT_MODEL:deepseek-r1:8b}
       complex-default-model: ${APP_AI_COMPLEX_DEFAULT_MODEL:deepseek-r1:32b}
+
+    local-model-fallback:
+      # 当路由命中本地 Ollama 模型，但本机并未启动 Ollama 时：
+      # 1. 路由阶段会先探测一次本地可用性
+      # 2. 若确认不可用，则自动切换到 fallback-model
+      # 3. 即便路由阶段误判，真正调用本地失败时网关层还会再兜底一次
+      enabled: ${APP_AI_LOCAL_MODEL_FALLBACK_ENABLED:true}
+      local-provider-code: ${APP_AI_LOCAL_PROVIDER_CODE:ollama-local}
+      fallback-model: ${APP_AI_LOCAL_FALLBACK_MODEL:deepseek-chat}
+      probe-before-route: ${APP_AI_LOCAL_MODEL_PROBE_BEFORE_ROUTE:true}
 
     timeout:
       seconds: 300
@@ -142,9 +156,10 @@ app:
       # - 对其他模型，如果你也是通过统一聚合平台接入，通常也同样是 base-url + API Key。
       # - 如果你是直连某厂商官方平台，而协议不是 OpenAI-compatible，
       #   则需要把对应 provider 的 path/header 配成该厂商要求的值。
+      # 暂时禁用 anthropic 模型（API 余额不足）
       anthropic:
         type: OPENAI_COMPATIBLE
-        enabled: true
+        enabled: false
         base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
         chat-completions-path: ${ANTHROPIC_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
         use-api-key: true
@@ -162,9 +177,10 @@ app:
         api-key-header: ${GEMINI_API_KEY_HEADER:Authorization}
         api-key-prefix: ${GEMINI_API_KEY_PREFIX:Bearer }
 
+      # 暂时禁用 nano-banana 模型
       nano-banana:
         type: OPENAI_COMPATIBLE
-        enabled: true
+        enabled: false
         base-url: ${NANO_BANANA_BASE_URL:https://api.nanobanana.example.com}
         chat-completions-path: ${NANO_BANANA_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
         use-api-key: true
@@ -189,7 +205,7 @@ app:
 
       xai:
         type: OPENAI_COMPATIBLE
-        enabled: true
+        enabled: false
         base-url: ${XAI_BASE_URL:https://api.x.ai}
         chat-completions-path: ${XAI_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
         use-api-key: true
@@ -197,7 +213,7 @@ app:
 
       moonshot:
         type: OPENAI_COMPATIBLE
-        enabled: true
+        enabled: false
         base-url: ${MOONSHOT_BASE_URL:https://api.moonshot.cn}
         chat-completions-path: ${MOONSHOT_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
         use-api-key: true
@@ -205,7 +221,7 @@ app:
 
       minimax:
         type: OPENAI_COMPATIBLE
-        enabled: true
+        enabled: false
         base-url: ${MINIMAX_BASE_URL:https://api.minimax.chat}
         chat-completions-path: ${MINIMAX_CHAT_COMPLETIONS_PATH:/v1/text/chatcompletion_v2}
         use-api-key: true
@@ -215,19 +231,29 @@ app:
 
       zhipu:
         type: OPENAI_COMPATIBLE
-        enabled: true
+        enabled: false
         base-url: ${ZHIPU_BASE_URL:https://open.bigmodel.cn}
         chat-completions-path: ${ZHIPU_CHAT_COMPLETIONS_PATH:/api/paas/v4/chat/completions}
         use-api-key: true
         api-key: ${ZHIPU_API_KEY:}
 
+      # 暂时禁用 mimo 模型
       mimo:
         type: OPENAI_COMPATIBLE
-        enabled: true
+        enabled: false
         base-url: ${MIMO_BASE_URL:https://api.mimo.example.com}
         chat-completions-path: ${MIMO_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
         use-api-key: true
         api-key: ${MIMO_API_KEY:}
+
+      # 阿里云通义千问（Qwen）模型
+      aliyun:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${ALIYUN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
+        chat-completions-path: ${ALIYUN_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${ALIYUN_API_KEY:}
 
   # =========================
   # 聊天提示词与流式日志配置
@@ -282,7 +308,9 @@ app:
 
       # ---- 第二层中期记忆：触发条件与摘要模型 ----
       summary-trigger-rounds: ${CHAT_MEMORY_SUMMARY_TRIGGER_ROUNDS:20}
-      summary-model: ${CHAT_MEMORY_SUMMARY_MODEL:deepseek-r1:8b}
+      # 中期记忆摘要默认直接走云端 DeepSeek 基础模型，
+      # 避免摘要链路继续依赖本地 Ollama 是否启动。
+      summary-model: ${CHAT_MEMORY_SUMMARY_MODEL:deepseek-chat}
       summary-temperature: ${CHAT_MEMORY_SUMMARY_TEMPERATURE:0.2}
       summary-max-tokens: ${CHAT_MEMORY_SUMMARY_MAX_TOKENS:512}
       summary-max-characters: ${CHAT_MEMORY_SUMMARY_MAX_CHARACTERS:300}
