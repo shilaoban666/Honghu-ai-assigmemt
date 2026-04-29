@@ -38,19 +38,19 @@ public class SystemMetricsCollector {
         log.info("=====================================");
         log.info("     系统指标监控报告");
         log.info("=====================================");
-        
+
         // 打印操作系统信息
         printOperatingSystemInfo();
-        
+
         // 打印JVM内存信息
         printMemoryInfo();
-        
+
         // 打印线程信息
         printThreadInfo();
-        
+
         // 打印CPU信息
         printCpuInfo();
-        
+
         log.info("=====================================");
     }
 
@@ -58,7 +58,7 @@ public class SystemMetricsCollector {
      * 打印操作系统基本信息
      */
     private void printOperatingSystemInfo() {
-        log.info("【操作系统信息】：操作系统名称: {},操作系统版本: {}, 操作系统架构: {}, 可用处理器数: {}",osBean.getName(),osBean.getVersion(),osBean.getArch(),osBean.getAvailableProcessors());
+        log.info("【操作系统信息】：操作系统名称: {},操作系统版本: {}, 操作系统架构: {}, 可用处理器数: {}", osBean.getName(), osBean.getVersion(), osBean.getArch(), osBean.getAvailableProcessors());
     }
 
     /**
@@ -66,19 +66,19 @@ public class SystemMetricsCollector {
      */
     private void printMemoryInfo() {
         log.info("【内存使用情况】");
-        
+
         // 堆内存信息
         var heapMemory = memoryBean.getHeapMemoryUsage();
-        log.info("  堆内存: 初始大小: {} MB,已使用: {} MB,已提交: {} MB,最大值: {} MB, 使用率: {}%",bytesToMB(heapMemory.getInit()),bytesToMB(heapMemory.getUsed()),bytesToMB(heapMemory.getCommitted()),bytesToMB(heapMemory.getMax()),calculatePercentage(heapMemory.getUsed(), heapMemory.getMax()));
+        log.info("  堆内存: 初始大小: {} MB,已使用: {} MB,已提交: {} MB,最大值: {} MB, 使用率: {}%", bytesToMB(heapMemory.getInit()), bytesToMB(heapMemory.getUsed()), bytesToMB(heapMemory.getCommitted()), bytesToMB(heapMemory.getMax()), calculatePercentage(heapMemory.getUsed(), heapMemory.getMax()));
 
         // 非堆内存信息
         var nonHeapMemory = memoryBean.getNonHeapMemoryUsage();
-        log.info("  非堆内存:");
-        log.info("    初始大小: {} MB", bytesToMB(nonHeapMemory.getInit()));
-        log.info("    已使用: {} MB", bytesToMB(nonHeapMemory.getUsed()));
-        log.info("    已提交: {} MB", bytesToMB(nonHeapMemory.getCommitted()));
-        log.info("    最大值: {} MB", bytesToMB(nonHeapMemory.getMax()));
-        log.info("    使用率: {}%", calculatePercentage(nonHeapMemory.getUsed(), nonHeapMemory.getMax()));
+        log.info("  非堆内存: 初始大小: {} MB ， 已使用: {} MB， 已提交: {} MB， 最大值: {} MB， 使用率: {}%",
+                bytesToMB(nonHeapMemory.getInit()),
+                bytesToMB(nonHeapMemory.getUsed()),
+                bytesToMB(nonHeapMemory.getCommitted()),
+                bytesToMB(nonHeapMemory.getMax()),
+                calculatePercentage(nonHeapMemory.getUsed(), nonHeapMemory.getMax()));
 
         // 总内存使用
         long totalUsed = heapMemory.getUsed() + nonHeapMemory.getUsed();
@@ -95,7 +95,7 @@ public class SystemMetricsCollector {
         log.info("  峰值线程数: {}", threadBean.getPeakThreadCount());
         log.info("  守护线程数: {}", threadBean.getDaemonThreadCount());
         log.info("  总启动线程数: {}", threadBean.getTotalStartedThreadCount());
-        
+
         // 线程状态分布（简化版本）
         log.info("  线程状态详情:");
         log.info("    当前活跃线程数: {}", threadBean.getThreadCount());
@@ -109,7 +109,7 @@ public class SystemMetricsCollector {
     private void printCpuInfo() {
         log.info("【CPU信息】");
         log.info("  可用处理器数: {}", osBean.getAvailableProcessors());
-        
+
         try {
             // 尝试获取更详细的CPU信息（需要特定的MXBean实现）
             if (osBean instanceof com.sun.management.OperatingSystemMXBean sunOsBean) {
