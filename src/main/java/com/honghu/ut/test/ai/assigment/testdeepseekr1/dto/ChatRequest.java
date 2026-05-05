@@ -46,6 +46,10 @@ public class ChatRequest {
 
     @Schema(description = "最大token数", example = "2048")
     private Integer maxTokens = 2048;
+
+    @Schema(description = "本轮用户消息要附加的已上传文件 fileId 列表，对应 /api/v1/rag/files 返回值")
+    private List<String> attachmentFileIds;
+
     @Schema(description = "工具列表")
     private List<Tool> tools;
 }

@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.Nullable;
 import org.springframework.stereotype.Component;
+import software.amazon.awssdk.core.ResponseBytes;
 import software.amazon.awssdk.core.sync.RequestBody;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.*;
@@ -187,6 +188,26 @@ public class AwsManager {
         }
     }
 
+    /**
+     * 获取对象元数据。
+     */
+    public HeadObjectResponse headObject(String bucket, String key) {
+        return s3Client.headObject(HeadObjectRequest.builder().bucket(bucket).key(key).build());
+    }
+
+    /**
+     * 直接读取对象二进制内容。
+     *
+     * <p>简单 RAG 第一版会在这里把文件拉到应用内存中做文本抽取，
+     * 后续如需支持超大文件，可再扩展成流式处理。</p>
+     */
+    public byte[] getObjectBytes(String bucket, String key) {
+        ResponseBytes<GetObjectResponse> responseBytes = s3Client.getObjectAsBytes(
+                GetObjectRequest.builder().bucket(bucket).key(key).build()
+        );
+        return responseBytes.asByteArray();
+    }
+
     // =====================================================
     //                S3 — 预签名 URL
     // =====================================================
@@ -353,6 +374,16 @@ public class AwsManager {
             log.info("SQS 队列创建成功: {} -> {}", queueName, response.queueUrl());
             return response.queueUrl();
         }
+    }
+
+    /**
+     * 只读取队列 URL，不自动创建队列。
+     */
+    public String getQueueUrl(String queueName) {
+        requireSqsClient();
+        GetQueueUrlResponse response = sqsClient.getQueueUrl(
+                GetQueueUrlRequest.builder().queueName(queueName).build());
+        return response.queueUrl();
     }
 
     // =====================================================

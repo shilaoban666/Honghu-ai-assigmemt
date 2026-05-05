@@ -10,7 +10,12 @@ import software.amazon.awssdk.auth.credentials.*;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.sqs.SqsAsyncClient;
+import software.amazon.awssdk.services.sqs.SqsAsyncClientBuilder;
 import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.SqsClientBuilder;
+
+import java.net.URI;
 
 
 /**
@@ -21,6 +26,7 @@ import software.amazon.awssdk.services.sqs.SqsClient;
  *     <li>{@link S3Client} — 对象存储操作（桶管理、对象读写）</li>
  *     <li>{@link S3Presigner} — 生成预签名 URL（前端直传）</li>
  *     <li>{@link SqsClient} — 消息队列操作（发送/接收消息）</li>
+ *     <li>{@link SqsAsyncClient} — 提供给 {@code @SqsListener} 的异步消费客户端</li>
  * </ul>
  *
  * <p>所有客户端共享 {@link AwsProperties} 中的全局 endpoint / region / credentials，
@@ -97,12 +103,63 @@ public class AwsConfig {
     @Bean
     @ConditionalOnProperty(prefix = "app.aws.sqs", name = "enabled", havingValue = "true")
     public SqsClient sqsClient() {
-
         log.info("初始化 SqsClient: region={}", awsProperties.getRegion());
-        return SqsClient.builder()
+        SqsClientBuilder builder = SqsClient.builder()
                 .region(Region.of(awsProperties.getRegion()))
-                .credentialsProvider(credentialsProvider())
-                .build();
+                .credentialsProvider(credentialsProvider());
+
+        resolveSqsEndpoint().ifPresent(endpoint -> {
+            log.info("SqsClient 使用自定义 endpoint: {}", endpoint);
+            builder.endpointOverride(URI.create(endpoint));
+        });
+
+        return builder.build();
+    }
+
+    /**
+     * SQS 异步客户端。
+     *
+     * <p>Spring Cloud AWS 的 {@code @SqsListener} 底层依赖异步客户端来拉取消息、分发监听器、
+     * 管理消息确认（ack）和失败重试。因此这里额外提供一个与同步客户端共用凭证/region 的异步 Bean。</p>
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "app.aws.sqs", name = "enabled", havingValue = "true")
+    public SqsAsyncClient sqsAsyncClient() {
+        log.info("初始化 SqsAsyncClient: region={}", awsProperties.getRegion());
+        SqsAsyncClientBuilder builder = SqsAsyncClient.builder()
+                .region(Region.of(awsProperties.getRegion()))
+                .credentialsProvider(credentialsProvider());
+
+        resolveSqsEndpoint().ifPresent(endpoint -> {
+            log.info("SqsAsyncClient 使用自定义 endpoint: {}", endpoint);
+            builder.endpointOverride(URI.create(endpoint));
+        });
+
+        return builder.build();
+    }
+
+    /**
+     * 统一解析 SQS endpoint。
+     *
+     * <p>优先级：</p>
+     * <ol>
+     *     <li>{@code app.aws.sqs.endpoint}</li>
+     *     <li>{@code app.aws.endpoint}</li>
+     *     <li>未配置时直连 AWS 官方服务地址</li>
+     * </ol>
+     *
+     * <p>这样既兼容真实 AWS，也兼容 LocalStack 等本地/测试环境。</p>
+     */
+    private java.util.Optional<String> resolveSqsEndpoint() {
+        if (awsProperties.getSqs() != null
+                && awsProperties.getSqs().getEndpoint() != null
+                && !awsProperties.getSqs().getEndpoint().isBlank()) {
+            return java.util.Optional.of(awsProperties.getSqs().getEndpoint().trim());
+        }
+        if (awsProperties.hasCustomEndpoint()) {
+            return java.util.Optional.of(awsProperties.getEndpoint().trim());
+        }
+        return java.util.Optional.empty();
     }
 }
 

@@ -1,4 +1,15 @@
 spring:
+  cloud:
+    aws:
+      region:
+        # 这里不再直接重复绑定 AWS_REGION，而是直接桥接到 app.aws.region。
+        # 这样 region 只在一处维护：业务代码和 Spring Cloud AWS 自动配置都共用同一个真实值。
+        static: ${app.aws.region:us-east-1}
+      sqs:
+        # 这里保留是因为它控制的是 Spring Cloud AWS 的 @SqsListener 基础设施。
+        # 但真正的开关来源统一收敛到 app.aws.sqs.enabled，避免同一个布尔值写两遍后配错。
+        enabled: ${app.aws.sqs.enabled:true}
+
   application:
     name: testDeepseekR1
 
@@ -339,4 +350,77 @@ app:
       queue-capacity: ${MEMORY_SUMMARY_ASYNC_QUEUE_CAPACITY:200}
       wait-for-tasks-to-complete-on-shutdown: ${MEMORY_SUMMARY_ASYNC_WAIT_ON_SHUTDOWN:true}
       await-termination-seconds: ${MEMORY_SUMMARY_ASYNC_AWAIT_TERMINATION_SECONDS:10}
+
+  # =========================
+  # AWS 云服务统一配置
+  # - 支持 AWS 原生服务和兼容协议的替代品（MinIO / LocalStack）
+  # - S3: 对象存储（文件上传、预签名 URL）
+  # - SQS: 消息队列（异步任务处理）
+  # =========================
+  aws:
+    profile: ${AWS_PROFILE:honghu-developer}
+    region: ${AWS_REGION:us-east-1}
+
+    # ---- S3 对象存储 ----
+    s3:
+      enabled: ${AWS_S3_ENABLED:true}
+      uploaded-bucket: ${AWS_S3_BUCKET:honghu-ai-document-upload}
+      presigned-url-expiration-minutes: ${AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES:30}
+
+    # ---- SQS 消息队列 ----
+    sqs:
+      # 这是应用侧唯一真实的 SQS 总开关：
+      # 1. 我们自己的 AwsConfig / AwsManager 依赖它来创建 SqsClient / SqsAsyncClient
+      # 2. 上面的 spring.cloud.aws.sqs.enabled 也会桥接到这里，驱动 @SqsListener 基础设施
+      # 当前按你的诉求改成默认开启；如果某些环境不想连 SQS，再显式传 AWS_SQS_ENABLED=false 即可。
+      enabled: ${AWS_SQS_ENABLED:true}
+      endpoint: ${AWS_SQS_ENDPOINT:}
+      # 以下两个参数当前主要保留给手工 AWS SDK 调用；
+      # 文档上传监听已经改为 @SqsListener，不再直接读取它们。
+      visibility-timeout-seconds: ${AWS_SQS_VISIBILITY_TIMEOUT:30}
+      wait-time-seconds: ${AWS_SQS_WAIT_TIME:20}
+
+  # =========================
+  # 简单 RAG 文档摄取配置
+  # 目标链路：S3 上传完成 -> SQS 收到事件 -> 后端拉取文件 -> 抽取文本 -> 分块落库
+  # 当前版本先支持 txt / md / json / xml / csv / pdf
+  # 图片 OCR、Office 深度解析、向量库召回后续再逐步扩展
+  # =========================
+  rag:
+    # 整套 RAG 基础能力总开关
+    enabled: ${APP_RAG_ENABLED:true}
+
+    listener:
+      # SQS 监听器开关
+      enabled: ${APP_RAG_LISTENER_ENABLED:true}
+      # 监听的 SQS 队列名称；当前由 @SqsListener 直接使用
+      queue-name: ${APP_RAG_LISTENER_QUEUE_NAME:honghu-ai-document-upload-received}
+
+    ingestion:
+      # 单个文件的最大处理大小（字节）
+      max-object-size-bytes: ${APP_RAG_INGESTION_MAX_OBJECT_SIZE_BYTES:20971520}
+      # 当前简单版真正支持抽取文本的扩展名
+      supported-extensions: ${APP_RAG_INGESTION_SUPPORTED_EXTENSIONS:txt,md,json,xml,csv,pdf}
+      # 每个 chunk 目标字符数
+      chunk-size: ${APP_RAG_INGESTION_CHUNK_SIZE:800}
+      # 相邻 chunk 的重叠字符数
+      chunk-overlap: ${APP_RAG_INGESTION_CHUNK_OVERLAP:120}
+      # 单文档最大分块数
+      max-chunks-per-document: ${APP_RAG_INGESTION_MAX_CHUNKS_PER_DOCUMENT:200}
+      # 最小有效 chunk 长度
+      min-chunk-length: ${APP_RAG_INGESTION_MIN_CHUNK_LENGTH:80}
+      # 抽取文本最大保留字符数
+      max-extracted-characters: ${APP_RAG_INGESTION_MAX_EXTRACTED_CHARACTERS:100000}
+
+    retrieval:
+      # 简单检索开关（当前先用 PostgreSQL chunk 做轻量匹配）
+      enabled: ${APP_RAG_RETRIEVAL_ENABLED:true}
+      # 每次最多返回多少个相关片段
+      top-k: ${APP_RAG_RETRIEVAL_TOP_K:4}
+      # 先从数据库拿多少个候选 chunk 参与打分
+      candidate-limit: ${APP_RAG_RETRIEVAL_CANDIDATE_LIMIT:80}
+      # 拼接给大模型前，最多保留多少字符的检索上下文
+      max-context-characters: ${APP_RAG_RETRIEVAL_MAX_CONTEXT_CHARACTERS:3000}
+      # 关键词最短长度
+      min-keyword-length: ${APP_RAG_RETRIEVAL_MIN_KEYWORD_LENGTH:2}
 
