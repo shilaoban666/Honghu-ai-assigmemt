@@ -1,10 +1,16 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.controller;
 
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatMessageWithAttachmentsResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.RagAccessDeniedException;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.ChatService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagAccessGuard;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDownloadService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -14,12 +20,18 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 import reactor.core.publisher.Flux;
 
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * AI聊天控制器
@@ -42,6 +54,9 @@ public class ChatController {
 
     private final ChatService chatService;
     private final ChatMessageRepository chatMessageRepository;
+    private final RagDocumentRepository ragDocumentRepository;
+    private final RagAccessGuard ragAccessGuard;
+    private final RagDownloadService ragDownloadService;
 
     /**
      * 从请求头提取 userId 并设置到请求对象中
@@ -114,8 +129,7 @@ public class ChatController {
             @Parameter(description = "用户消息") @RequestParam String message) {
 
         log.info("收到流式聊天请求: {}", message);
-        Flux<String> streamChat = chatService.streamChat(message);
-        return streamChat;
+        return chatService.streamChat(message);
     }
 
     /**
@@ -135,8 +149,7 @@ public class ChatController {
         
         bindUserIdToRequest(request, userId);
         log.info("收到结构化聊天请求：{}", request);
-        Flux<ChatResponse> response = chatService.structuredStreamChat(request);
-        return response;
+        return chatService.structuredStreamChat(request);
     }
 
     /**
@@ -165,8 +178,71 @@ public class ChatController {
      */
     @GetMapping("/history/{sessionId}")
     @Operation(summary = "查询对话历史")
-    public List<ChatMessage> getChatHistory(@PathVariable String sessionId) {
-        // 通过会话 ID 查询并按创建时间升序排序返回历史消息
-        return chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+    public List<ChatMessageWithAttachmentsResponse> getChatHistory(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @PathVariable String sessionId) {
+        try {
+            ragAccessGuard.requireOwnedSession(userId, sessionId);
+        } catch (RagAccessDeniedException ex) {
+            throw toHttpAccessError(userId, ex);
+        }
+
+        List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
+        List<Long> chatIds = messages.stream()
+                .map(ChatMessage::getChatId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        Map<Long, List<RagDocument>> attachmentsByChatId = new HashMap<>();
+        if (!chatIds.isEmpty()) {
+            for (RagDocument document : ragDocumentRepository.findByChatIdIn(chatIds)) {
+                if (document.getChatId() == null) {
+                    continue;
+                }
+                attachmentsByChatId.computeIfAbsent(document.getChatId(), ignored -> new java.util.ArrayList<>()).add(document);
+            }
+            attachmentsByChatId.values().forEach(documents -> documents.sort(Comparator.comparing(RagDocument::getCreatedAt, Comparator.nullsLast(Comparator.naturalOrder()))));
+        }
+
+        return messages.stream()
+                .map(message -> new ChatMessageWithAttachmentsResponse(
+                        message.getChatId(),
+                        message.getSessionId(),
+                        message.getChatRole(),
+                        message.getContentType(),
+                        message.getContent(),
+                        message.getStatus(),
+                        message.getCreatedAt(),
+                        attachmentsByChatId.getOrDefault(message.getChatId(), Collections.emptyList()).stream()
+                                .map(document -> new ChatMessageWithAttachmentsResponse.AttachmentDto(
+                                        document.getFileId(),
+                                        document.getFileName(),
+                                        document.getFileType(),
+                                        document.getFileSize(),
+                                        document.getStatus() == null ? null : document.getStatus().name(),
+                                        maybeGenerateDownloadUrl(userId, document)
+                                ))
+                                .toList()
+                ))
+                .toList();
+    }
+
+    private String maybeGenerateDownloadUrl(String callerUserId, RagDocument document) {
+        if (document == null || document.getStatus() == RagDocument.Status.FAILED || document.getStatus() == RagDocument.Status.SKIPPED) {
+            return null;
+        }
+        try {
+            return ragDownloadService.generatePresignedDownloadUrl(callerUserId, document.getFileId(), null);
+        } catch (Exception ex) {
+            log.warn("生成附件下载链接失败，已返回空链接: fileId={}, chatId={}, error={}",
+                    document.getFileId(), document.getChatId(), ex.getMessage());
+            return null;
+        }
+    }
+
+    private static ResponseStatusException toHttpAccessError(String headerUserId, RagAccessDeniedException ex) {
+        if (headerUserId == null || headerUserId.isBlank()) {
+            return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "缺少 " + USER_ID_HEADER + " 请求头");
+        }
+        return new ResponseStatusException(HttpStatus.FORBIDDEN, "无权访问该资源");
     }
 }

@@ -1,7 +1,7 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AwsProperties;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.PresignedUploadResult;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.record.PresignedUploadResult;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.manager.AwsManager;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
@@ -20,7 +20,7 @@ import java.util.UUID;
  * <p>业务层服务，负责文件上传相关的业务逻辑（路径计算、文件类型校验），
  * 底层 AWS 操作全部委托给 {@link AwsManager}。</p>
  *
- * <p>路径规则：{@code {bucket}/{username}/{sessionId}/{uuid}/{fileType}/{fileName}}</p>
+ * <p>路径规则：{@code {bucket}/{username}/{sessionId}/{fileType}/{uuid}/{fileName}}</p>
  *
  * @author shilaoban
  * @since 2026-04-18
@@ -33,6 +33,7 @@ public class S3UploadService {
     private final AwsManager awsManager;
     private final AwsProperties awsProperties;
     private final UserRepository userRepository;
+    private final RagAccessGuard ragAccessGuard;
 
     /** 允许上传的文件类型白名单（扩展名，小写） */
     private static final Set<String> ALLOWED_FILE_TYPES = Set.of(
@@ -70,7 +71,8 @@ public class S3UploadService {
      * <ol>
      *     <li>前端调用本接口，拿到 {@code uploadUrl} 和 {@code objectKey}</li>
      *     <li>前端用 HTTP PUT + Content-Type 请求头，将文件直传到 {@code uploadUrl}</li>
-     *     <li>上传成功后，前端携带 {@code objectKey} 调用 POST /api/v1/rag/files，后端写 DB 记录</li>
+     *     <li>上传成功后，前端携带 {@code objectKey} 调用 POST /api/v1/rag/files，先把文件登记为 {@code RECEIVED}</li>
+     *     <li>随后等待 S3 事件投递到 SQS，由异步摄取链路把状态推进到 {@code PROCESSING / INDEXED / FAILED / SKIPPED}</li>
      * </ol>
      *
      * @param userId  用户Id（如 admin），决定 S3 路径的第一级目录
@@ -88,6 +90,7 @@ public class S3UploadService {
                     + "，允许的类型: " + ALLOWED_FILE_TYPES);
         }
         User user = userRepository.findById(userId).orElseThrow(() -> new IllegalArgumentException("用户不存在"));
+        ragAccessGuard.requireOrCreateSession(user, sessionId);
         String bucket = awsProperties.getS3().getUploadedBucket();
 
         // 2. 确保 S3 存储桶存在（不存在时自动创建）
@@ -98,8 +101,8 @@ public class S3UploadService {
         String fileUuid = UUID.randomUUID().toString();
         String folderKey = String.join("/", user.getUsername(), sessionId, normalizedType, fileUuid);
 
-        // 4. 在 S3 中创建文件夹占位对象（便于控制台查看目录结构）
-        awsManager.ensureFolderExists(bucket, folderKey);
+        // 4. 在 S3 中创建文件夹占位对象（便于控制台查看目录结构）--取消这一步，因为 S3 本质上是扁平存储，不需要真正创建文件夹
+//        awsManager.ensureFolderExists(bucket, folderKey);
 
         // 5. 拼接完整的 objectKey（文件名用原始名或 UUID 兜底）
         String actualFileName = (fileName != null && !fileName.isBlank())
@@ -116,6 +119,6 @@ public class S3UploadService {
                 user.getUsername(), sessionId, normalizedType, objectKey);
 
         // 7. 将 url 和 objectKey 一起返回，objectKey 是前端第三步 POST 时必须携带的参数
-        return new PresignedUploadResult(uploadUrl, objectKey, contentType);
+        return new PresignedUploadResult(uploadUrl, objectKey, contentType, fileUuid);
     }
 }

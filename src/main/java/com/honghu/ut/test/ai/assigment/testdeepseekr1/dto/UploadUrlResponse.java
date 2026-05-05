@@ -30,7 +30,7 @@ public class UploadUrlResponse {
     private String uploadUrl;
 
     @Schema(description = "文件在 S3 中的完整路径 key，上传完成后 POST /files 时必须携带此字段",
-            example = "admin/sess_abc123/550e8400-xxx/pdf/report.pdf")
+            example = "admin/sess_abc123/pdf/550e8400-xxx/report.pdf")
     private String objectKey;
 
     @Schema(description = "文件 MIME 类型，前端 PUT 时必须在 Content-Type 请求头中携带此值，否则预签名校验失败",
