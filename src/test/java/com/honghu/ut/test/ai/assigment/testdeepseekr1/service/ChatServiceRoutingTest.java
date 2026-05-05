@@ -7,6 +7,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
@@ -29,6 +30,8 @@ class ChatServiceRoutingTest {
     @Mock
     private ChatMessageRepository chatMessageRepository;
     @Mock
+    private RagDocumentRepository ragDocumentRepository;
+    @Mock
     private UserRepository userRepository;
     @Mock
     private AiTaskKeywordService aiTaskKeywordService;
@@ -38,6 +41,8 @@ class ChatServiceRoutingTest {
     private DefaultSystemPromptProvider defaultSystemPromptProvider;
     @Mock
     private ChatSummaryService chatSummaryService;
+    @Mock
+    private RagRetrievalService ragRetrievalService;
     @Mock
     private AiModelAccessService aiModelAccessService;
     @Mock
@@ -54,12 +59,14 @@ class ChatServiceRoutingTest {
         chatService = new ChatService(
                 chatSessionRepository,
                 chatMessageRepository,
+                ragDocumentRepository,
                 userRepository,
                 aiTaskKeywordService,
                 chatMemoryService,
                 chatMemoryConfig,
                 defaultSystemPromptProvider,
                 chatSummaryService,
+                ragRetrievalService,
                 aiModelAccessService,
                 aiChatModelGatewayService,
                 aiProviderProperties,
@@ -226,14 +233,14 @@ class ChatServiceRoutingTest {
                 .localModel(true)
                 .build();
         AiModelDefinition fallbackModel = AiModelDefinition.builder()
-                .modelCode("deepseek-v3.2")
+                .modelCode("deepseek-chat")
                 .providerCode("deepseek-cloud")
                 .localModel(false)
                 .build();
 
         when(aiModelAccessService.resolveModelForChat(guest, null, "deepseek-r1:8b")).thenReturn(localModel);
         when(connectionHealthChecker.isOllamaAvailable()).thenReturn(false);
-        when(aiModelAccessService.resolveFallbackModelWhenLocalUnavailable(guest, "deepseek-v3.2")).thenReturn(fallbackModel);
+        when(aiModelAccessService.resolveFallbackModelWhenLocalUnavailable(guest, "deepseek-chat")).thenReturn(fallbackModel);
 
         AiModelDefinition resolved = ReflectionTestUtils.invokeMethod(
                 chatService,
@@ -245,7 +252,7 @@ class ChatServiceRoutingTest {
         );
 
         assertThat(resolved).isNotNull();
-        assertThat(resolved.getModelCode()).isEqualTo("deepseek-v3.2");
+        assertThat(resolved.getModelCode()).isEqualTo("deepseek-chat");
     }
 }
 

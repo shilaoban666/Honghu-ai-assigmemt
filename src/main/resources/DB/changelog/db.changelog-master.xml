@@ -59,5 +59,8 @@
     <!-- 引入 AI 模型目录与用户模型权限表 -->
     <include file="DB/changelog/db.changelog-ai-models.xml" relativeToChangelogFile="false"/>
 
+    <!-- 引入文档上传后的简单 RAG 表结构 -->
+    <include file="DB/changelog/db.changelog-rag.xml" relativeToChangelogFile="false"/>
+
 </databaseChangeLog>
 

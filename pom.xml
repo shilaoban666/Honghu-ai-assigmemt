@@ -159,6 +159,20 @@
             <version>2.25.27</version>
         </dependency>
 
+        <!-- Spring Cloud AWS SQS：提供 @SqsListener 注解式消息消费能力 -->
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-sqs</artifactId>
+            <version>3.1.0</version>
+        </dependency>
+
+        <!-- PDFBox：第一版简单 RAG 先支持 PDF / 纯文本文件解析 -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.2</version>
+        </dependency>
+
         <!-- Test Dependencies -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

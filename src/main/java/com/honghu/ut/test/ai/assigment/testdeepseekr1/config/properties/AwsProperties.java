@@ -49,7 +49,7 @@ public class AwsProperties {
     @Data
     public static class S3 {
         /** 是否启用 S3  */
-        private boolean enabled = false;;
+        private boolean enabled = false;
         /** 存储桶名称 */
         private String uploadedBucket;
 
@@ -70,13 +70,19 @@ public class AwsProperties {
         /** SQS 端点（可单独覆盖，默认复用全局 endpoint） */
         private String endpoint;
 
-        /** 默认队列名称 */
-        private String defaultQueueName = "honghu-ai-task-queue";
-
-        /** 消息可见性超时（秒） */
+        /**
+         * 消息可见性超时（秒）。
+         *
+         * <p>当前主要保留给手工使用 AWS SDK 的场景；
+         * 文档上传监听已经迁移到 {@code @SqsListener}，不再直接读取该值。</p>
+         */
         private int visibilityTimeoutSeconds = 30;
 
-        /** 长轮询等待时间（秒），0 表示短轮询 */
+        /**
+         * 长轮询等待时间（秒），0 表示短轮询。
+         *
+         * <p>当前同样主要保留给手工 AWS SDK 调用场景。</p>
+         */
         private int waitTimeSeconds = 20;
     }
     public boolean hasProfile() {

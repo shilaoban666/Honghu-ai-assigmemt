@@ -8,8 +8,10 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
@@ -50,12 +52,14 @@ public class ChatService {
 
     private final ChatSessionRepository chatSessionRepository;
     private final ChatMessageRepository chatMessageRepository;
+    private final RagDocumentRepository ragDocumentRepository;
     private final UserRepository userRepository;
     private final AiTaskKeywordService aiTaskKeywordService;
     private final ChatMemoryService chatMemoryService;
     private final ChatMemoryConfig chatMemoryConfig;
     private final DefaultSystemPromptProvider defaultSystemPromptProvider;
     private final ChatSummaryService chatSummaryService;
+    private final RagRetrievalService ragRetrievalService;
     private final AiModelAccessService aiModelAccessService;
     private final AiChatModelGatewayService aiChatModelGatewayService;
     private final AiProviderProperties aiProviderProperties;
@@ -159,8 +163,19 @@ public class ChatService {
             // request.systemMessage > taskType 对应默认提示词 > 全局默认提示词。
             // 这样提示词选择与后续模型路由解耦，不会出现“根据最终模型反推 prompt”的耦合问题。
             String systemPrompt = resolveSystemPrompt(request.getSystemMessage(), taskKeywordMatch);
+            List<Message> messages = new ArrayList<>();
+            messages.add(new SystemPromptTemplate(systemPrompt).createMessage());
 
-            return aiChatModelGatewayService.chat(modelDefinition, List.of(new SystemPromptTemplate(systemPrompt).createMessage(), new UserMessage(request.getMessage())), request.getTemperature(), request.getMaxTokens());
+            // 非流式结构化聊天如果传了 sessionId，也同样尝试注入当前会话已索引文档的简单 RAG 上下文。
+            // 注意：必须把 userId 传进去，让 RagRetrievalService 校验"sessionId 真的属于这个 userId"，
+            // 否则攻击者只要枚举 sessionId 就能拿到别人的文档片段。
+            String ragContextPrompt = ragRetrievalService.buildContextBlock(request.getUserId(), request.getSessionId(), request.getMessage());
+            if (ragContextPrompt != null && !ragContextPrompt.isBlank()) {
+                messages.add(new SystemMessage(ragContextPrompt));
+            }
+            messages.add(new UserMessage(request.getMessage()));
+
+            return aiChatModelGatewayService.chat(modelDefinition, messages, request.getTemperature(), request.getMaxTokens());
 
         } catch (Exception e) {
             log.warn("结构化聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
@@ -274,6 +289,7 @@ public class ChatService {
                 .build();
         userMsg = chatMessageRepository.save(userMsg);  // 先写数据库，保证长期持久化完整
         log.info("用户消息已保存到数据库：{}", userMsg);
+        bindAttachmentsToUserMessage(request, userMsg, chatUser, finalSessionId);
         // Redis 写入改为事务提交后再执行，避免数据库回滚但缓存已提前暴露。一致性设计说明：
         // 1. PostgreSQL 是会话与消息的最终真源，所有消息必须先可靠落库。
         // 2. Redis 只保存“短期工作记忆”，它是数据库的派生缓存，而不是唯一事实来源。
@@ -297,8 +313,14 @@ public class ChatService {
         // 这里先只读，不立即触发后台压缩。
         // 原因：本轮请求稍后还会落库 assistant 消息，如果现在就触发一次、完成后再触发一次，会造成重复摘要计算。
         List<String> memorySystemPrompts = chatSummaryService.getMemorySystemPrompts(finalSessionId, userId);
+        // 简单 RAG：如果当前 session 已经有被 SQS 摄取并成功索引的文档，
+        // 这里会从 rag_document_chunk 中做一次轻量召回，并拼成额外的 SystemMessage。
+        // 这样模型就能在回答时优先参考“本会话已上传资料”，形成最基础可用版 RAG。
+        // 把 userId 一并传入：RagRetrievalService 内部会校验该 sessionId 归属当前 userId
+        // 并按 ownerFolder=username 二次过滤，防止跨用户读到别人的文档。
+        String ragContextPrompt = ragRetrievalService.buildContextBlock(request.getUserId(), finalSessionId, request.getMessage());
         // 根据 system prompt 长度动态计算本次还能留给历史消息多少 token 预算
-        int historyTokenLimit = resolveHistoryTokenLimit(systemPrompt, memorySystemPrompts);
+        int historyTokenLimit = resolveHistoryTokenLimit(systemPrompt, memorySystemPrompts, ragContextPrompt);
         // 从新到旧累计 token，达到阈值立刻停止，拿到最近一段连续上下文
         List<ChatMessage> selectedHistory = selectHistoryMessagesByTokenLimit(history, historyTokenLimit);
 
@@ -307,7 +329,7 @@ public class ChatService {
 
         // 步骤 4: 执行流式聊天并保存 AI 回复
         // 使用带历史记录和重试机制的流式聊天方法
-        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, selectedModel, systemPrompt, selectedHistory, memorySystemPrompts, MAX_RETRIES);
+        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, selectedModel, systemPrompt, selectedHistory, memorySystemPrompts, ragContextPrompt, MAX_RETRIES);
 
         // 异步保存 AI 响应到数据库（不阻塞流式传输）
         StringBuilder fullContent = new StringBuilder();
@@ -341,7 +363,13 @@ public class ChatService {
                 });
     }
 
-    private Flux<ChatResponse> structuredStreamChatWithRetryAndHistory(ChatRequest request, AiModelDefinition selectedModel, String resolvedSystemPrompt, List<ChatMessage> history, List<String> memorySystemPrompts, int remainingRetries) {
+    private Flux<ChatResponse> structuredStreamChatWithRetryAndHistory(ChatRequest request,
+                                                                       AiModelDefinition selectedModel,
+                                                                       String resolvedSystemPrompt,
+                                                                       List<ChatMessage> history,
+                                                                       List<String> memorySystemPrompts,
+                                                                       String ragContextPrompt,
+                                                                       int remainingRetries) {
         return Flux.defer(() -> {
             log.info("开始处理带历史记录的结构化流式聊天请求：{} (剩余重试次数：{})", request, remainingRetries);
 
@@ -357,6 +385,12 @@ public class ChatService {
                 }
             }
 
+            // 简单 RAG 资料上下文放在中期记忆之后、短期历史之前。
+            // 这样模型会先拿到“规则 + 用户画像/摘要 + 资料片段”，再看到最近几轮对话，顺序更符合语义组织。
+            if (ragContextPrompt != null && !ragContextPrompt.isBlank()) {
+                messages.add(new SystemMessage(ragContextPrompt));
+            }
+
             // 把筛选后的历史消息按原顺序拼回 Prompt，形成完整上下文
             for (ChatMessage historyMessage : history) {
                 Message promptMessage = toPromptMessage(historyMessage);
@@ -366,14 +400,15 @@ public class ChatService {
             }
 
 
-            log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, memorySystemMessages={}, historyMessages={}", request.getSessionId(), encoding.countTokens(resolvedSystemPrompt), memorySystemPrompts.size(), history.size());
+            int ragTokens = ragContextPrompt != null && !ragContextPrompt.isBlank() ? encoding.countTokens(ragContextPrompt) : 0;
+            log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, memorySystemMessages={}, ragTokens≈{}, historyMessages={}", request.getSessionId(), encoding.countTokens(resolvedSystemPrompt), memorySystemPrompts.size(), ragTokens, history.size());
 
             // 使用流式响应日志记录器（可配置）
             return logStreamingResponse(aiChatModelGatewayService.streamChat(selectedModel, messages, request.getTemperature(), request.getMaxTokens()));
         }).onErrorResume(e -> {
             log.warn("结构化流式聊天处理失败 (剩余重试次数：{}): {}", remainingRetries, e.getMessage());
             if (isConnectionException((Exception) e) && remainingRetries > 0) {
-                return Mono.delay(Duration.ofMillis(RETRY_DELAY_MS)).thenMany(structuredStreamChatWithRetryAndHistory(request, selectedModel, resolvedSystemPrompt, history, memorySystemPrompts, remainingRetries - 1));
+                return Mono.delay(Duration.ofMillis(RETRY_DELAY_MS)).thenMany(structuredStreamChatWithRetryAndHistory(request, selectedModel, resolvedSystemPrompt, history, memorySystemPrompts, ragContextPrompt, remainingRetries - 1));
             }
             return Flux.error(new RuntimeException("聊天服务暂时不可用：" + e.getMessage(), e));
         });
@@ -603,7 +638,49 @@ public class ChatService {
         return Long.compare(leftId, rightId);
     }
 
-    private int resolveHistoryTokenLimit(String systemPrompt, List<String> memorySystemPrompts) {
+    private void bindAttachmentsToUserMessage(ChatRequest request,
+                                              ChatMessage userMsg,
+                                              User chatUser,
+                                              String finalSessionId) {
+        if (request == null || userMsg == null || chatUser == null || request.getAttachmentFileIds() == null || request.getAttachmentFileIds().isEmpty()) {
+            return;
+        }
+        try {
+            for (String fileId : request.getAttachmentFileIds()) {
+                if (fileId == null || fileId.isBlank()) {
+                    continue;
+                }
+                RagDocument document = ragDocumentRepository.findByFileIdOrderByUpdatedAtDesc(fileId).stream()
+                        .findFirst()
+                        .orElse(null);
+                if (document == null) {
+                    log.warn("附件绑定跳过：未找到文件记录，fileId={}, sessionId={}, chatId={}", fileId, finalSessionId, userMsg.getChatId());
+                    continue;
+                }
+                if (!java.util.Objects.equals(document.getOwnerFolder(), chatUser.getUsername())
+                        || !java.util.Objects.equals(document.getSessionId(), finalSessionId)) {
+                    log.warn("附件绑定跳过：文件归属或会话不匹配，fileId={}, ownerFolder={}, documentSessionId={}, requestSessionId={}, caller={}",
+                            fileId, document.getOwnerFolder(), document.getSessionId(), finalSessionId, chatUser.getUsername());
+                    continue;
+                }
+                if (document.getChatId() == null) {
+                    document.setChatId(userMsg.getChatId());
+                    ragDocumentRepository.save(document);
+                    continue;
+                }
+                if (document.getChatId().equals(userMsg.getChatId())) {
+                    continue;
+                }
+                log.warn("拒绝把已绑定文件改挂到新消息上，fileId={}, oldChatId={}, newChatId={}",
+                        fileId, document.getChatId(), userMsg.getChatId());
+            }
+        } catch (Exception ex) {
+            log.warn("附件绑定失败，已跳过但不阻断聊天主流程: sessionId={}, chatId={}, error={}",
+                    finalSessionId, userMsg.getChatId(), ex.getMessage(), ex);
+        }
+    }
+
+    private int resolveHistoryTokenLimit(String systemPrompt, List<String> memorySystemPrompts, String ragContextPrompt) {
         int systemPromptTokens = 0;
         if (systemPrompt != null && !systemPrompt.isBlank()) {
             // +4 为 system message 的包装开销预留一个粗略缓冲
@@ -619,11 +696,16 @@ public class ChatService {
             }
         }
 
-        // 总预算先扣除 system prompt，再把剩余额度分配给历史消息窗口
-        int availableHistoryTokens = chatMemoryConfig.getPromptTokenLimit() - systemPromptTokens - memorySummaryTokens;
+        int ragContextTokens = 0;
+        if (ragContextPrompt != null && !ragContextPrompt.isBlank()) {
+            ragContextTokens = encoding.countTokens(ragContextPrompt) + 4;
+        }
+
+        // 总预算先扣除 system prompt / 中期记忆 / RAG 资料上下文，再把剩余额度分配给历史消息窗口。
+        int availableHistoryTokens = chatMemoryConfig.getPromptTokenLimit() - systemPromptTokens - memorySummaryTokens - ragContextTokens;
         // 通过最小值兜底，避免 system prompt 过长导致历史上下文完全丢失
         int resolvedLimit = Math.max(chatMemoryConfig.getMinimumHistoryTokens(), availableHistoryTokens);
-        log.info("本次短期记忆 token 预算：promptLimit={}, systemPromptTokens≈{}, memorySummaryTokens≈{}, historyLimit={}", chatMemoryConfig.getPromptTokenLimit(), systemPromptTokens, memorySummaryTokens, resolvedLimit);
+        log.info("本次短期记忆 token 预算：promptLimit={}, systemPromptTokens≈{}, memorySummaryTokens≈{}, ragContextTokens≈{}, historyLimit={}", chatMemoryConfig.getPromptTokenLimit(), systemPromptTokens, memorySummaryTokens, ragContextTokens, resolvedLimit);
         return resolvedLimit;
     }
 
