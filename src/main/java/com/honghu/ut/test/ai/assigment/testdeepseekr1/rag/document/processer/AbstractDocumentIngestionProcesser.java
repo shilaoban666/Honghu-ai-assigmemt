@@ -281,11 +281,12 @@ public abstract class AbstractDocumentIngestionProcesser implements DocumentInge
             stateService.updateRagStatus(eventId, RagIngestionEvent.RagStatus.INDEXING, "开始写入 RAG 索引分块");
             Integer previousChunkCount = document.getChunkCount();
             stateService.replaceDocumentIndex(document.getDocumentId(), chunks, extractedText.length());
-
+            // 如果配置了向量索引，就在写完 chunk 后调用 DashScope 生成向量并写入 Milvus；如果向量写入失败，则记录告警但不影响最终索引成功。
             if ("vector".equalsIgnoreCase(ragProperties.getRetrieval().getMode())) {
                 stateService.updateRagStatus(eventId, RagIngestionEvent.RagStatus.EMBEDDING, "开始调用 DashScope 生成向量并写入 Milvus");
                 try {
                     List<RagDocumentChunk> persistedChunks = chunkRepository.findByDocumentIdWithDocument(document.getDocumentId());
+                    //调用生成向量化，并且写入向量数据库
                     vectorIndexingService.replaceVectorIndex(document.getDocumentId(), persistedChunks, previousChunkCount);
                 } catch (Exception ex) {
                     log.warn("向量写入失败（已降级，文档仍可用 keyword 检索）: documentId={}, error={}",
