@@ -167,6 +167,20 @@
         </createIndex>
     </changeSet>
 
+    <changeSet id="rag-9-add-document-chunk-metadata" author="shilaoban">
+        <preConditions onFail="MARK_RAN">
+            <and>
+                <tableExists tableName="rag_document_chunk"/>
+                <not>
+                    <columnExists tableName="rag_document_chunk" columnName="metadata"/>
+                </not>
+            </and>
+        </preConditions>
+        <addColumn tableName="rag_document_chunk">
+            <column name="metadata" type="JSONB"/>
+        </addColumn>
+    </changeSet>
+
     <changeSet id="rag-8-add-document-chat-id" author="shilaoban">
         <preConditions onFail="MARK_RAN">
             <and>

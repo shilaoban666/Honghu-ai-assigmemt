@@ -7,6 +7,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retiriever.RagRetrievalService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
