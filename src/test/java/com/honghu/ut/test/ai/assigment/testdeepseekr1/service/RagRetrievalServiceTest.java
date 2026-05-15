@@ -5,7 +5,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocumentChunk;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.RagSnippetFormatter;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.generator.RagSnippetFormatter;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retiriever.KeywordRagRetrievalService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentChunkRepository;

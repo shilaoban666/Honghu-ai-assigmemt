@@ -3,7 +3,7 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.RagProperties;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.RagSnippetFormatter;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.generator.RagSnippetFormatter;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retiriever.VectorRagRetrievalService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;

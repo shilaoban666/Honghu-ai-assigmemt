@@ -5,7 +5,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.RagSnippetFormatter;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.generator.RagSnippetFormatter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.document.Document;

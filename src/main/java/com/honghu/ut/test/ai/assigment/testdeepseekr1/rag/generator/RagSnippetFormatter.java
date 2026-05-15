@@ -1,4 +1,4 @@
-package com.honghu.ut.test.ai.assigment.testdeepseekr1.rag;
+package com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.generator;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retiriever.RagRetrievalService;
 import org.springframework.stereotype.Component;
