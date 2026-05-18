@@ -1,5 +1,8 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.rag;
 
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.index.splitter.RagWindowOverlapTextSplitter;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retrieval.retriever.RagRetrievalService;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -35,7 +38,7 @@ import java.util.Map;
  * </ul>
  *
  * @see ChunkCandidate
- * @see com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retiriever.RagRetrievalService.RagSnippet
+ * @see RagRetrievalService.RagSnippet
  */
 public record ChunkMetadata(
         /**
@@ -94,7 +97,7 @@ public record ChunkMetadata(
         /**
          * cleaner 处理后文本中的起始字符偏移。
          *
-         * <p>{@link com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.splitter.RagWindowOverlapTextSplitter}
+         * <p>{@link RagWindowOverlapTextSplitter}
          * 可以填入真实偏移；其他 splitter 暂时填 -1。</p>
          */
         Integer cleanedStartOffset,
@@ -262,21 +265,57 @@ public record ChunkMetadata(
     // 便捷构造（immutable 复制，不修改原对象）
     // ═══════════════════════════════════════════════
 
-    /** 复制并替换 documentId（其他字段不变）。 */
+    /**
+     * 复制当前 metadata，并只替换 {@code documentId} 字段。
+     *
+     * <p>这是一个不可变对象的“with”方法：record 本身不会被修改，
+     * 方法会创建一个新的 {@link ChunkMetadata} 实例，把新的 documentId 放进去，
+     * 其余字段全部沿用当前对象的值。</p>
+     *
+     * <p>典型使用场景是：某些历史 chunk 或测试数据先构造了基础 metadata，
+     * 后续才知道真实文档 ID，此时可以通过本方法补齐文档归属，而不破坏原对象。</p>
+     *
+     * @param documentId 新的文档主记录 ID；允许为 {@code null}，表示清空文档归属字段
+     * @return 带有新 documentId 的 metadata 副本
+     */
     public ChunkMetadata withDocumentId(String documentId) {
         return new ChunkMetadata(documentId, sessionId, ownerFolder,
                 fileId, fileName, fileType, source,
                 pageNumber, sectionPath, cleanedStartOffset, cleanedEndOffset, status, extra);
     }
 
-    /** 复制并替换 status（用于向量写入时注入 "INDEXED"）。 */
+    /**
+     * 复制当前 metadata，并只替换 {@code status} 字段。
+     *
+     * <p>{@code status} 主要给向量库和检索侧使用，用来说明这个 chunk 是否已经完成索引。
+     * 当前向量写入链路通常会传入 {@code "INDEXED"}，这样 Milvus filter 可以追加
+     * {@code status == 'INDEXED'}，避免把未完成或历史脏数据检索出来。</p>
+     *
+     * <p>和其他 with 方法一样，本方法不会原地修改当前 record，而是返回一个新的副本。</p>
+     *
+     * @param status 新的索引状态；例如 {@code "INDEXED"}，也可以为 {@code null}
+     * @return 带有新 status 的 metadata 副本
+     */
     public ChunkMetadata withStatus(String status) {
         return new ChunkMetadata(documentId, sessionId, ownerFolder,
                 fileId, fileName, fileType, source,
                 pageNumber, sectionPath, cleanedStartOffset, cleanedEndOffset, status, extra);
     }
 
-    /** 复制并替换 cleanedStartOffset 和 cleanedEndOffset。 */
+    /**
+     * 复制当前 metadata，并替换清洗后文本中的字符偏移范围。
+     *
+     * <p>splitter 切分 chunk 时，如果能准确知道该 chunk 在 cleaned text 中的起止位置，
+     * 就通过本方法把 {@code cleanedStartOffset} 和 {@code cleanedEndOffset} 写入 metadata。
+     * 这些偏移对后续排查“某个 chunk 来自原文哪里”、做高亮、或回溯上下文都很有用。</p>
+     *
+     * <p>如果某个 splitter 暂时无法计算真实偏移，可以传 {@code -1} 或 {@code null}，
+     * 表示“未知偏移”。</p>
+     *
+     * @param start chunk 在清洗后文本中的起始字符下标
+     * @param end chunk 在清洗后文本中的结束字符下标
+     * @return 带有新 offset 范围的 metadata 副本
+     */
     public ChunkMetadata withOffsets(Integer start, Integer end) {
         return new ChunkMetadata(documentId, sessionId, ownerFolder,
                 fileId, fileName, fileType, source,
@@ -287,13 +326,37 @@ public record ChunkMetadata(
     // 内部辅助方法
     // ═══════════════════════════════════════════════
 
-    /** 从 Map 取 String 值，null 或空串统一返回 null。 */
+    /**
+     * 从 metadata Map 中读取字符串字段。
+     *
+     * <p>这里把 {@code null} 和空字符串都统一折叠成 {@code null}，
+     * 这样 {@link #fromMap(Map)} 反序列化出来的核心字段更干净：
+     * “没有值”只用一种表示，不会在业务判断里同时出现 {@code null} 与 {@code ""} 两种分支。</p>
+     *
+     * @param map Milvus 或 DB JSONB 反序列化出来的 Map
+     * @param key 要读取的 metadata key
+     * @return 非空字符串值；如果 key 不存在、值为 null 或值为空字符串，则返回 null
+     */
     private static String str(Map<String, Object> map, String key) {
         Object v = map.get(key);
         return v == null || "".equals(v) ? null : v.toString();
     }
 
-    /** 从 Map 取 Integer 值，支持 Number 和 String 两种来源。 */
+    /**
+     * 从 metadata Map 中读取整数字段。
+     *
+     * <p>metadata 可能来自不同存储边界：PostgreSQL JSONB、Milvus JSON 字段、测试手写 Map。
+     * 有些路径会把数字保留成 {@link Number}，有些路径会把数字转成字符串。
+     * 因此这里同时兼容 Number 和 String，降低跨存储反序列化带来的类型差异。</p>
+     *
+     * <p>如果字符串无法解析成整数，本方法选择返回 {@code null}，
+     * 而不是抛异常中断整次检索；因为 pageNumber、offset 这类字段属于辅助元数据，
+     * 单个脏值不应该让整个 RAG 查询失败。</p>
+     *
+     * @param map Milvus 或 DB JSONB 反序列化出来的 Map
+     * @param key 要读取的 metadata key
+     * @return 解析出的整数；无法解析或不存在时返回 null
+     */
     private static Integer integer(Map<String, Object> map, String key) {
         Object v = map.get(key);
         if (v instanceof Number n) return n.intValue();
@@ -303,7 +366,19 @@ public record ChunkMetadata(
         return null;
     }
 
-    /** 从 Map 中提取非核心字段到 extra。 */
+    /**
+     * 从原始 metadata Map 中提取扩展字段。
+     *
+     * <p>{@link ChunkMetadata} 把稳定字段建模成 record 属性，例如 documentId、sessionId、fileName。
+     * 但 metadata 里还可能混入实验性字段、Milvus 返回字段、OCR 诊断字段等。
+     * 这些不适合作为强类型属性固定下来，所以统一归入 {@link #extra()}。</p>
+     *
+     * <p>实现方式是：先复制整张 Map，再移除所有当前代码已知的核心 key，
+     * 剩下的内容就是扩展字段。最后返回不可变 Map，避免外部拿到引用后改动 record 内部状态。</p>
+     *
+     * @param map 原始 metadata Map
+     * @return 只包含非核心字段的不可变 Map；没有扩展字段时返回空 Map
+     */
     private static Map<String, Object> extractExtra(Map<String, Object> map) {
         Map<String, Object> extra = new LinkedHashMap<>(map);
         // 移除所有已知核心字段，剩余的归入 extra
@@ -318,7 +393,17 @@ public record ChunkMetadata(
         return extra.isEmpty() ? Map.of() : Map.copyOf(extra);
     }
 
-    /** 仅当 value 非 null 时才放入 Map。 */
+    /**
+     * 仅在值非 {@code null} 时写入目标 Map。
+     *
+     * <p>{@link #toMap()} 使用这个方法序列化核心字段，是为了让最终 JSON 更紧凑，
+     * 也让“字段缺失”和“字段值为 null”统一表现为 key 不存在。
+     * 这样 Milvus filter、前端展示和测试断言都更容易保持一致。</p>
+     *
+     * @param map 目标 Map
+     * @param key metadata key
+     * @param value 待写入的值；为 null 时直接跳过
+     */
     private static void putIfNotNull(Map<String, Object> map, String key, Object value) {
         if (value != null) {
             map.put(key, value);

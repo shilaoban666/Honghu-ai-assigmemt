@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">RAG 检索 Pipeline 详细链路</title>
+  <desc id="desc">展示从 ChatService 构造 RagRequest，到 Pipeline 检索、fallback、排序、格式化并注入 LLM 的完整链路。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#7f7b73"/>
+    </marker>
+    <marker id="arrowHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#f39a18"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font: 700 24px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #34322f; }
+      .subtitle { font: 500 13px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #6c6861; }
+      .section { font: 700 15px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #55514a; }
+      .label { font: 700 15px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #3f3f3f; }
+      .small { font: 500 12px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #4f4b45; }
+      .code { font: 500 12px Consolas, "Microsoft YaHei", monospace; fill: #55514a; }
+      .muted { font: 500 12px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #6c6861; }
+      .node { rx: 8; ry: 8; stroke-width: 1.4; }
+      .neutral { fill: #f7f5ef; stroke: #aaa69d; }
+      .blue { fill: #e8f3ff; stroke: #6aa3df; }
+      .purple { fill: #eeeaff; stroke: #8b80e8; }
+      .green { fill: #dff4ee; stroke: #4ba993; }
+      .orange { fill: #fff1dc; stroke: #d9963a; }
+      .dash { stroke: #e5e0d8; stroke-width: 1.2; stroke-dasharray: 6 6; }
+      .arrow { stroke: #7f7b73; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .hot { stroke: #f39a18; stroke-width: 1.8; fill: none; marker-end: url(#arrowHot); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1280" height="720"/>
+  <text class="title" x="42" y="45">RAG 检索 Pipeline 详细链路</text>
+  <text class="subtitle" x="42" y="70">入口校验、作用域解析、召回策略、fallback、排序和上下文格式化的完整运行顺序</text>
+
+  <text class="section" x="44" y="112">① 调用入口</text>
+  <rect class="node blue" x="42" y="128" width="196" height="92"/>
+  <text class="label" x="140" y="157" text-anchor="middle">ChatService</text>
+  <text class="small" x="140" y="180" text-anchor="middle">构造 RagRequest</text>
+  <text class="code" x="140" y="199" text-anchor="middle">userId / sessionId / query</text>
+
+  <rect class="node blue" x="282" y="128" width="236" height="92"/>
+  <text class="label" x="400" y="154" text-anchor="middle">PipelineRagRetrievalService</text>
+  <text class="small" x="400" y="178" text-anchor="middle">校验 session 归属</text>
+  <text class="code" x="400" y="198" text-anchor="middle">buildContextBlock(...)</text>
+
+  <rect class="node blue" x="562" y="128" width="210" height="92"/>
+  <text class="label" x="667" y="154" text-anchor="middle">RagPipeline.execute</text>
+  <text class="small" x="667" y="178" text-anchor="middle">检索编排核心</text>
+  <text class="code" x="667" y="198" text-anchor="middle">永不向上抛检索异常</text>
+
+  <path class="hot" d="M238 174 H282"/>
+  <path class="hot" d="M518 174 H562"/>
+
+  <line class="dash" x1="42" y1="250" x2="1238" y2="250"/>
+  <text class="section" x="44" y="286">② Pipeline 内部阶段</text>
+
+  <rect class="node orange" x="42" y="305" width="178" height="92"/>
+  <text class="label" x="131" y="331" text-anchor="middle">ScopeResolver</text>
+  <text class="small" x="131" y="354" text-anchor="middle">解析 EffectiveScope</text>
+  <text class="code" x="131" y="374" text-anchor="middle">FILE_IDS / CHAT / SESSION</text>
+
+  <rect class="node purple" x="260" y="305" width="178" height="92"/>
+  <text class="label" x="349" y="331" text-anchor="middle">QueryAnalyzer</text>
+  <text class="small" x="349" y="354" text-anchor="middle">可选查询改写</text>
+  <text class="code" x="349" y="374" text-anchor="middle">query variants</text>
+
+  <rect class="node green" x="478" y="305" width="188" height="92"/>
+  <text class="label" x="572" y="331" text-anchor="middle">CandidateRetrieval</text>
+  <text class="small" x="572" y="354" text-anchor="middle">按 mode 选择召回器</text>
+  <text class="code" x="572" y="374" text-anchor="middle">keyword / vector / hybrid</text>
+
+  <rect class="node purple" x="706" y="305" width="168" height="92"/>
+  <text class="label" x="790" y="331" text-anchor="middle">Fusion</text>
+  <text class="small" x="790" y="354" text-anchor="middle">可选 RRF 融合</text>
+  <text class="code" x="790" y="374" text-anchor="middle">rank based score</text>
+
+  <rect class="node orange" x="914" y="305" width="168" height="92"/>
+  <text class="label" x="998" y="331" text-anchor="middle">Fallback</text>
+  <text class="small" x="998" y="354" text-anchor="middle">命中不足扩大范围</text>
+  <text class="code" x="998" y="374" text-anchor="middle">minHits / minScore</text>
+
+  <rect class="node blue" x="1122" y="305" width="116" height="92"/>
+  <text class="label" x="1180" y="331" text-anchor="middle">Format</text>
+  <text class="small" x="1180" y="354" text-anchor="middle">排序 topK</text>
+  <text class="code" x="1180" y="374" text-anchor="middle">contextBlock</text>
+
+  <path class="arrow" d="M220 351 H260"/>
+  <path class="arrow" d="M438 351 H478"/>
+  <path class="arrow" d="M666 351 H706"/>
+  <path class="arrow" d="M874 351 H914"/>
+  <path class="arrow" d="M1082 351 H1122"/>
+  <path class="arrow" d="M667 220 V270 H131 V305"/>
+
+  <line class="dash" x1="42" y1="426" x2="1238" y2="426"/>
+  <text class="section" x="44" y="462">③ 输出给大模型</text>
+
+  <rect class="node neutral" x="100" y="485" width="246" height="96"/>
+  <text class="label" x="223" y="513" text-anchor="middle">List&lt;RagSnippet&gt;</text>
+  <text class="small" x="223" y="537" text-anchor="middle">content + score + ChunkMetadata</text>
+  <text class="code" x="223" y="558" text-anchor="middle">documentId:chunkIndex 去重</text>
+
+  <rect class="node orange" x="438" y="485" width="246" height="96"/>
+  <text class="label" x="561" y="513" text-anchor="middle">RagSnippetFormatter</text>
+  <text class="small" x="561" y="537" text-anchor="middle">安全边界 + 字符预算</text>
+  <text class="code" x="561" y="558" text-anchor="middle">RAG_BLOCK_BEGIN / END</text>
+
+  <rect class="node blue" x="776" y="485" width="246" height="96"/>
+  <text class="label" x="899" y="513" text-anchor="middle">SystemMessage</text>
+  <text class="small" x="899" y="537" text-anchor="middle">把资料当作不可信参考</text>
+  <text class="code" x="899" y="558" text-anchor="middle">禁止执行资料内指令</text>
+
+  <rect class="node purple" x="1112" y="485" width="126" height="96"/>
+  <text class="label" x="1175" y="513" text-anchor="middle">LLM</text>
+  <text class="small" x="1175" y="537" text-anchor="middle">回答用户</text>
+  <text class="code" x="1175" y="558" text-anchor="middle">不编造</text>
+
+  <path class="hot" d="M1180 397 V455 H223 V485"/>
+  <path class="arrow" d="M346 533 H438"/>
+  <path class="arrow" d="M684 533 H776"/>
+  <path class="arrow" d="M1022 533 H1112"/>
+
+  <text class="muted" x="42" y="662">关键实现：PipelineRagRetrievalService 负责入口鉴权；RagPipeline 负责编排；CandidateRetriever 只产出候选；Formatter 才生成最终 prompt 文本。</text>
+</svg>

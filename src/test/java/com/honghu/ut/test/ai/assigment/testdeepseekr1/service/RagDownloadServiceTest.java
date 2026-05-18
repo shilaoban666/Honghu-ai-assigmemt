@@ -37,7 +37,7 @@ class RagDownloadServiceTest {
     private AwsProperties awsProperties;
 
     @InjectMocks
-    private RagDownloadService ragDownloadService;
+    private RagDocumentProcessService ragDownloadService;
 
     @BeforeEach
     void setUp() {

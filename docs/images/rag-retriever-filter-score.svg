@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760" role="img" aria-labelledby="title desc">
+  <title id="title">Keyword 与 Vector 召回细节</title>
+  <desc id="desc">对比 KeywordRagCandidateRetriever 和 VectorRagCandidateRetriever 的过滤条件、数据源和打分方式。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7f7b73"/></marker>
+    <marker id="arrowHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f39a18"/></marker>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font: 700 24px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #34322f; }
+      .subtitle { font: 500 13px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #6c6861; }
+      .section { font: 700 15px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #55514a; }
+      .label { font: 700 15px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #3f3f3f; }
+      .small { font: 500 12px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #4f4b45; }
+      .code { font: 500 12px Consolas, "Microsoft YaHei", monospace; fill: #55514a; }
+      .node { rx: 8; ry: 8; stroke-width: 1.4; }
+      .neutral { fill: #f7f5ef; stroke: #aaa69d; }
+      .blue { fill: #e8f3ff; stroke: #6aa3df; }
+      .green { fill: #dff4ee; stroke: #4ba993; }
+      .purple { fill: #eeeaff; stroke: #8b80e8; }
+      .orange { fill: #fff1dc; stroke: #d9963a; }
+      .dash { stroke: #e5e0d8; stroke-width: 1.2; stroke-dasharray: 6 6; }
+      .arrow { stroke: #7f7b73; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .hot { stroke: #f39a18; stroke-width: 1.8; fill: none; marker-end: url(#arrowHot); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1280" height="760"/>
+  <text class="title" x="42" y="45">Keyword 与 Vector 召回细节</text>
+  <text class="subtitle" x="42" y="70">两路召回都必须受 EffectiveScope 和 ownerFolder 约束，最终统一输出 RetrievalCandidate</text>
+
+  <text class="section" x="44" y="112">① 共同输入</text>
+  <rect class="node neutral" x="42" y="130" width="220" height="100"/>
+  <text class="label" x="152" y="160" text-anchor="middle">query</text>
+  <text class="small" x="152" y="184" text-anchor="middle">用户问题或 query variant</text>
+  <text class="code" x="152" y="204" text-anchor="middle">String</text>
+
+  <rect class="node orange" x="322" y="130" width="260" height="100"/>
+  <text class="label" x="452" y="160" text-anchor="middle">EffectiveScope</text>
+  <text class="small" x="452" y="184" text-anchor="middle">primaryType + ownerFolder</text>
+  <text class="code" x="452" y="204" text-anchor="middle">FILE_IDS / CHAT / SESSION</text>
+
+  <rect class="node blue" x="642" y="130" width="250" height="100"/>
+  <text class="label" x="767" y="160" text-anchor="middle">topK / candidateLimit</text>
+  <text class="small" x="767" y="184" text-anchor="middle">topK 控制最终数量</text>
+  <text class="code" x="767" y="204" text-anchor="middle">candidateLimit 控制召回池</text>
+
+  <rect class="node green" x="952" y="130" width="246" height="100"/>
+  <text class="label" x="1075" y="160" text-anchor="middle">RetrievalCandidate</text>
+  <text class="small" x="1075" y="184" text-anchor="middle">snippet + source + rawScore</text>
+  <text class="code" x="1075" y="204" text-anchor="middle">dedupKey=documentId:chunkIndex</text>
+
+  <path class="hot" d="M262 180 H322"/>
+  <path class="hot" d="M582 180 H642"/>
+  <path class="hot" d="M892 180 H952"/>
+
+  <line class="dash" x1="42" y1="270" x2="1238" y2="270"/>
+  <text class="section" x="44" y="306">② KeywordRagCandidateRetriever</text>
+
+  <rect class="node green" x="74" y="328" width="238" height="112"/>
+  <text class="label" x="193" y="356" text-anchor="middle">loadChunks(scope)</text>
+  <text class="small" x="193" y="381" text-anchor="middle">PostgreSQL 查询 chunk</text>
+  <text class="code" x="193" y="403" text-anchor="middle">status=INDEXED</text>
+  <text class="code" x="193" y="423" text-anchor="middle">ownerFolder 必须匹配</text>
+
+  <rect class="node orange" x="386" y="328" width="238" height="112"/>
+  <text class="label" x="505" y="356" text-anchor="middle">extractKeywords(query)</text>
+  <text class="small" x="505" y="381" text-anchor="middle">正则提取中文/字母/数字</text>
+  <text class="code" x="505" y="403" text-anchor="middle">minKeywordLength ≥ 2</text>
+  <text class="small" x="505" y="423" text-anchor="middle">中文 token 生成子串</text>
+
+  <rect class="node blue" x="698" y="328" width="238" height="112"/>
+  <text class="label" x="817" y="356" text-anchor="middle">toSnippet(...)</text>
+  <text class="small" x="817" y="381" text-anchor="middle">本地规则打分</text>
+  <text class="code" x="817" y="403" text-anchor="middle">完整 query +20</text>
+  <text class="code" x="817" y="423" text-anchor="middle">关键词命中 +5</text>
+
+  <rect class="node neutral" x="1010" y="328" width="188" height="112"/>
+  <text class="label" x="1104" y="356" text-anchor="middle">source=keyword</text>
+  <text class="small" x="1104" y="381" text-anchor="middle">score &gt; 0 才保留</text>
+  <text class="code" x="1104" y="403" text-anchor="middle">rawScore=规则分</text>
+
+  <path class="arrow" d="M312 384 H386"/>
+  <path class="arrow" d="M624 384 H698"/>
+  <path class="arrow" d="M936 384 H1010"/>
+
+  <line class="dash" x1="42" y1="480" x2="1238" y2="480"/>
+  <text class="section" x="44" y="516">③ VectorRagCandidateRetriever</text>
+
+  <rect class="node green" x="74" y="538" width="238" height="112"/>
+  <text class="label" x="193" y="566" text-anchor="middle">buildFilter(scope)</text>
+  <text class="small" x="193" y="591" text-anchor="middle">构造 Milvus 过滤表达式</text>
+  <text class="code" x="193" y="613" text-anchor="middle">ownerFolder == 'user'</text>
+  <text class="code" x="193" y="633" text-anchor="middle">status == 'INDEXED'</text>
+
+  <rect class="node purple" x="386" y="538" width="238" height="112"/>
+  <text class="label" x="505" y="566" text-anchor="middle">VectorStore</text>
+  <text class="small" x="505" y="591" text-anchor="middle">similaritySearch(req)</text>
+  <text class="code" x="505" y="613" text-anchor="middle">topK + threshold + filter</text>
+  <text class="small" x="505" y="633" text-anchor="middle">异常返回空列表</text>
+
+  <rect class="node blue" x="698" y="538" width="238" height="112"/>
+  <text class="label" x="817" y="566" text-anchor="middle">toCandidate(Document)</text>
+  <text class="small" x="817" y="591" text-anchor="middle">解析 metadata 与 distance</text>
+  <text class="code" x="817" y="613" text-anchor="middle">score = max(0, 1 - distance)</text>
+  <text class="small" x="817" y="633" text-anchor="middle">distance 脏值按 1.0</text>
+
+  <rect class="node neutral" x="1010" y="538" width="188" height="112"/>
+  <text class="label" x="1104" y="566" text-anchor="middle">source=vector</text>
+  <text class="small" x="1104" y="591" text-anchor="middle">语义相似候选</text>
+  <text class="code" x="1104" y="613" text-anchor="middle">rawScore=1-distance</text>
+
+  <path class="arrow" d="M312 594 H386"/>
+  <path class="arrow" d="M624 594 H698"/>
+  <path class="arrow" d="M936 594 H1010"/>
+
+  <text class="small" x="74" y="706">FILE_IDS / CHAT 会先从 PostgreSQL 查 documentIds，再进入 Milvus filter；SESSION 直接用 sessionId + ownerFolder + status 过滤。</text>
+</svg>

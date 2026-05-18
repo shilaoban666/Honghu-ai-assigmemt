@@ -2,13 +2,26 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.config;
 
 import io.milvus.client.MilvusServiceClient;
 import io.milvus.param.ConnectParam;
+import io.milvus.param.IndexType;
+import io.milvus.param.MetricType;
 import org.springframework.ai.autoconfigure.vectorstore.milvus.MilvusServiceClientProperties;
 import org.springframework.ai.autoconfigure.vectorstore.milvus.MilvusVectorStoreProperties;
+import org.springframework.ai.embedding.BatchingStrategy;
+import org.springframework.ai.embedding.EmbeddingModel;
+import org.springframework.ai.embedding.TokenCountBatchingStrategy;
+import org.springframework.ai.vectorstore.MilvusVectorStore;
+import org.springframework.ai.vectorstore.MilvusVectorStore.MilvusVectorStoreConfig;
+import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.observation.VectorStoreObservationConvention;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.util.StringUtils;
+
+import io.micrometer.observation.ObservationRegistry;
 
 import java.util.concurrent.TimeUnit;
 
@@ -28,8 +41,43 @@ import java.util.concurrent.TimeUnit;
 @EnableConfigurationProperties({MilvusServiceClientProperties.class, MilvusVectorStoreProperties.class})
 public class RagMilvusClientConfig {
 
+    @Bean
+    @ConditionalOnMissingBean(BatchingStrategy.class)
+    public BatchingStrategy milvusBatchingStrategy() {
+        return new TokenCountBatchingStrategy();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(VectorStore.class)
+    @ConditionalOnProperty(prefix = "spring.ai.openai.embedding", name = "enabled", havingValue = "true")
+    public VectorStore milvusVectorStore(MilvusServiceClient milvusClient,
+                                         EmbeddingModel embeddingModel,
+                                         MilvusVectorStoreProperties vectorStoreProperties,
+                                         BatchingStrategy batchingStrategy,
+                                         ObjectProvider<ObservationRegistry> observationRegistry,
+                                         ObjectProvider<VectorStoreObservationConvention> customObservationConvention) {
+        MilvusVectorStoreConfig config = MilvusVectorStoreConfig.builder()
+                .withCollectionName(vectorStoreProperties.getCollectionName())
+                .withDatabaseName(vectorStoreProperties.getDatabaseName())
+                .withIndexType(IndexType.valueOf(vectorStoreProperties.getIndexType().name()))
+                .withMetricType(MetricType.valueOf(vectorStoreProperties.getMetricType().name()))
+                .withIndexParameters(vectorStoreProperties.getIndexParameters())
+                .withEmbeddingDimension(vectorStoreProperties.getEmbeddingDimension())
+                .build();
+
+        return new MilvusVectorStore(
+                milvusClient,
+                embeddingModel,
+                config,
+                vectorStoreProperties.isInitializeSchema(),
+                batchingStrategy,
+                observationRegistry.getIfUnique(() -> ObservationRegistry.NOOP),
+                customObservationConvention.getIfAvailable(() -> null));
+    }
+
     @Bean(destroyMethod = "")
     @ConditionalOnMissingBean(MilvusServiceClient.class)
+    @ConditionalOnProperty(prefix = "spring.ai.openai.embedding", name = "enabled", havingValue = "true")
     public MilvusServiceClient milvusClient(MilvusVectorStoreProperties vectorStoreProperties,
                                             MilvusServiceClientProperties clientProperties) {
         ConnectParam.Builder builder = ConnectParam.newBuilder()
