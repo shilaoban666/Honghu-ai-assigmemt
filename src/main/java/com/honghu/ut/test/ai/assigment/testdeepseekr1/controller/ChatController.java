@@ -6,11 +6,11 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.RagAccessDeniedException;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDocumentProcessService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.ChatService;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagAccessGuard;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDownloadService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.security.RagAccessGuard;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -56,7 +56,7 @@ public class ChatController {
     private final ChatMessageRepository chatMessageRepository;
     private final RagDocumentRepository ragDocumentRepository;
     private final RagAccessGuard ragAccessGuard;
-    private final RagDownloadService ragDownloadService;
+    private final RagDocumentProcessService ragDocumentProcessService;
 
     /**
      * 从请求头提取 userId 并设置到请求对象中
@@ -231,7 +231,7 @@ public class ChatController {
             return null;
         }
         try {
-            return ragDownloadService.generatePresignedDownloadUrl(callerUserId, document.getFileId(), null);
+            return ragDocumentProcessService.generatePresignedDownloadUrl(callerUserId, document.getFileId(), null);
         } catch (Exception ex) {
             log.warn("生成附件下载链接失败，已返回空链接: fileId={}, chatId={}, error={}",
                     document.getFileId(), document.getChatId(), ex.getMessage());

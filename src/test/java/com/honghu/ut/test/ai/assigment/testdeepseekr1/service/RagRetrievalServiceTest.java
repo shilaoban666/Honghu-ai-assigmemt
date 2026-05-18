@@ -5,6 +5,8 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocumentChunk;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.generator.RagSnippetFormatter;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retiriever.KeywordRagRetrievalService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentChunkRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
@@ -29,7 +31,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * {@link RagRetrievalService} 单元测试。
+ * {@link KeywordRagRetrievalService} 单元测试。
  *
  * <p>覆盖：</p>
  * <ul>
@@ -51,12 +53,17 @@ class RagRetrievalServiceTest {
     @Mock private UserRepository userRepository;
 
     private RagProperties ragProperties;
-    private RagRetrievalService service;
+    private KeywordRagRetrievalService service;
 
     @BeforeEach
     void setUp() {
         ragProperties = new RagProperties();
-        service = new RagRetrievalService(ragProperties, ragDocumentChunkRepository, chatSessionRepository, userRepository);
+        service = new KeywordRagRetrievalService(
+                ragProperties,
+                ragDocumentChunkRepository,
+                chatSessionRepository,
+                userRepository,
+                new RagSnippetFormatter());
 
         lenient().when(chatSessionRepository.findById(SESSION_ID))
                 .thenReturn(Optional.of(ChatSession.builder().sessionId(SESSION_ID).userId(USER_ID).build()));

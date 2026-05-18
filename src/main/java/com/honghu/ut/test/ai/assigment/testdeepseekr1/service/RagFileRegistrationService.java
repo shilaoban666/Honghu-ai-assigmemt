@@ -5,6 +5,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.RagPrope
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.record.S3UploadReceivedMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.security.RagAccessGuard;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
 import lombok.RequiredArgsConstructor;

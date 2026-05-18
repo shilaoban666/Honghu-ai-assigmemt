@@ -7,8 +7,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.RagAccessDeniedE
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.ChatService;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagAccessGuard;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDownloadService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.security.RagAccessGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;

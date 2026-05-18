@@ -92,8 +92,30 @@ public class RagProperties {
 
     @Data
     public static class Retrieval {
-        /** 是否启用简单检索服务。 */
+        /** 是否启用检索服务。 */
         private boolean enabled = true;
+
+        /**
+         * 检索模式：keyword（旧）| vector（Milvus）。
+         *
+         * <p>这是本次向量化改造最关键的灰度开关：</p>
+         * <ul>
+         *     <li>{@code keyword}：继续走 PostgreSQL chunk + 关键词打分的旧链路</li>
+         *     <li>{@code vector}：启用 DashScope embedding + Milvus similarity search</li>
+         * </ul>
+         *
+         * <p>默认保持 {@code keyword}，是为了让新代码上线后零回归；
+         * 只有当向量写入、回填、外部依赖都准备好后，再由运维显式切到 {@code vector}。</p>
+         */
+        private String mode = "keyword";
+
+        /**
+         * 余弦相似度过滤阈值，低于该值的向量命中会被丢弃。
+         *
+         * <p>该值越高，召回越“保守”；越低，召回越“宽松”。它只影响 vector 模式，
+         * 对 keyword 模式没有实际作用，但保留在统一配置里方便将来做混合召回。</p>
+         */
+        private double similarityThreshold = 0.55;
 
         /** 每次最多返回多少个候选片段。 */
         private int topK = 4;
