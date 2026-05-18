@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\shilaoban\\\\IdeaProjects\\\\testDeepseekR1\" -Recurse -Directory -Filter \"*rag*\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\shilaoban\\\\IdeaProjects\\\\testDeepseekR1\" -Recurse -Directory)",
+      "Bash(Select-Object -First 20)",
+      "Bash(Format-Table FullName)",
+      "Bash(xargs grep -l \"Rerank\\\\|Fusion\\\\|RRF\\\\|QueryRewrite\\\\|Hybrid\")",
+      "Read(//c/Users/shilaoban/IdeaProjects/testDeepseekR1/**)",
+      "Bash(./mvnw -q -DskipTests -o compile)",
+      "Bash(cmd.exe /c \"mvnw.cmd -q -DskipTests compile\")"
+    ]
+  }
+}

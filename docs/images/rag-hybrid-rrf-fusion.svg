@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">Hybrid 检索与 RRF 融合</title>
+  <desc id="desc">展示 keyword、vector 和 query variants 多路候选如何通过 RRF 按排名融合。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7f7b73"/></marker>
+    <marker id="arrowHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f39a18"/></marker>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font: 700 24px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #34322f; }
+      .subtitle { font: 500 13px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #6c6861; }
+      .section { font: 700 15px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #55514a; }
+      .label { font: 700 15px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #3f3f3f; }
+      .small { font: 500 12px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #4f4b45; }
+      .code { font: 500 12px Consolas, "Microsoft YaHei", monospace; fill: #55514a; }
+      .node { rx: 8; ry: 8; stroke-width: 1.4; }
+      .neutral { fill: #f7f5ef; stroke: #aaa69d; }
+      .blue { fill: #e8f3ff; stroke: #6aa3df; }
+      .purple { fill: #eeeaff; stroke: #8b80e8; }
+      .green { fill: #dff4ee; stroke: #4ba993; }
+      .orange { fill: #fff1dc; stroke: #d9963a; }
+      .dash { stroke: #e5e0d8; stroke-width: 1.2; stroke-dasharray: 6 6; }
+      .arrow { stroke: #7f7b73; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .hot { stroke: #f39a18; stroke-width: 1.8; fill: none; marker-end: url(#arrowHot); }
+      .table { fill: #f7f5ef; stroke: #ded9cf; stroke-width: 1; }
+      .grid { stroke: #ded9cf; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1280" height="720"/>
+  <text class="title" x="42" y="45">Hybrid 检索与 RRF 融合</text>
+  <text class="subtitle" x="42" y="70">keyword 和 vector 的原始分数尺度不同，RRF 不看绝对分数，只看每路排名并累加贡献</text>
+
+  <text class="section" x="44" y="112">① 多路候选来源</text>
+  <rect class="node neutral" x="42" y="132" width="180" height="92"/>
+  <text class="label" x="132" y="160" text-anchor="middle">原始 query</text>
+  <text class="code" x="132" y="184" text-anchor="middle">用户问题</text>
+  <text class="small" x="132" y="204" text-anchor="middle">默认只有 1 路</text>
+
+  <rect class="node purple" x="270" y="132" width="196" height="92"/>
+  <text class="label" x="368" y="160" text-anchor="middle">QueryAnalyzer</text>
+  <text class="small" x="368" y="184" text-anchor="middle">可选生成多个变体</text>
+  <text class="code" x="368" y="204" text-anchor="middle">q1 / q2 / q3</text>
+
+  <rect class="node green" x="530" y="108" width="232" height="76"/>
+  <text class="label" x="646" y="135" text-anchor="middle">Keyword Retriever</text>
+  <text class="small" x="646" y="158" text-anchor="middle">PostgreSQL 关键词打分</text>
+
+  <rect class="node purple" x="530" y="202" width="232" height="76"/>
+  <text class="label" x="646" y="229" text-anchor="middle">Vector Retriever</text>
+  <text class="small" x="646" y="252" text-anchor="middle">Milvus similaritySearch</text>
+
+  <rect class="node orange" x="840" y="132" width="210" height="92"/>
+  <text class="label" x="945" y="160" text-anchor="middle">candidateLists</text>
+  <text class="small" x="945" y="184" text-anchor="middle">每一路保持排名顺序</text>
+  <text class="code" x="945" y="204" text-anchor="middle">List&lt;List&lt;Candidate&gt;&gt;</text>
+
+  <rect class="node blue" x="1096" y="132" width="142" height="92"/>
+  <text class="label" x="1167" y="160" text-anchor="middle">RRF</text>
+  <text class="small" x="1167" y="184" text-anchor="middle">按排名融合</text>
+  <text class="code" x="1167" y="204" text-anchor="middle">k=60</text>
+
+  <path class="arrow" d="M222 178 H270"/>
+  <path class="arrow" d="M466 178 H500 V146 H530"/>
+  <path class="arrow" d="M466 178 H500 V240 H530"/>
+  <path class="arrow" d="M762 146 H808 V178 H840"/>
+  <path class="arrow" d="M762 240 H808 V178 H840"/>
+  <path class="hot" d="M1050 178 H1096"/>
+
+  <line class="dash" x1="42" y1="310" x2="1238" y2="310"/>
+  <text class="section" x="44" y="346">② RRF 计算方式</text>
+
+  <rect class="table" x="74" y="370" width="480" height="196" rx="8"/>
+  <line class="grid" x1="74" y1="416" x2="554" y2="416"/>
+  <line class="grid" x1="74" y1="462" x2="554" y2="462"/>
+  <line class="grid" x1="74" y1="508" x2="554" y2="508"/>
+  <line class="grid" x1="210" y1="370" x2="210" y2="566"/>
+  <line class="grid" x1="370" y1="370" x2="370" y2="566"/>
+  <text class="label" x="142" y="400" text-anchor="middle">候选</text>
+  <text class="label" x="290" y="400" text-anchor="middle">keyword rank</text>
+  <text class="label" x="462" y="400" text-anchor="middle">vector rank</text>
+  <text class="code" x="142" y="446" text-anchor="middle">doc1:0</text>
+  <text class="code" x="290" y="446" text-anchor="middle">1</text>
+  <text class="code" x="462" y="446" text-anchor="middle">3</text>
+  <text class="code" x="142" y="492" text-anchor="middle">doc2:4</text>
+  <text class="code" x="290" y="492" text-anchor="middle">2</text>
+  <text class="code" x="462" y="492" text-anchor="middle">1</text>
+  <text class="code" x="142" y="538" text-anchor="middle">doc7:1</text>
+  <text class="code" x="290" y="538" text-anchor="middle">-</text>
+  <text class="code" x="462" y="538" text-anchor="middle">2</text>
+
+  <rect class="node orange" x="640" y="378" width="270" height="142"/>
+  <text class="label" x="775" y="410" text-anchor="middle">RRF 公式</text>
+  <text class="code" x="775" y="440" text-anchor="middle">score(d) = Σ 1 / (k + rank_i(d))</text>
+  <text class="small" x="775" y="468" text-anchor="middle">rank 越靠前贡献越大</text>
+  <text class="small" x="775" y="492" text-anchor="middle">多路靠前会累加优势</text>
+
+  <rect class="node green" x="990" y="378" width="220" height="142"/>
+  <text class="label" x="1100" y="410" text-anchor="middle">融合输出</text>
+  <text class="small" x="1100" y="438" text-anchor="middle">按 RRF 分数降序</text>
+  <text class="code" x="1100" y="462" text-anchor="middle">source += "-rrf"</text>
+  <text class="small" x="1100" y="490" text-anchor="middle">截断到 candidateLimitAfterFusion</text>
+
+  <path class="hot" d="M554 468 H640"/>
+  <path class="hot" d="M910 449 H990"/>
+
+  <line class="dash" x1="42" y1="602" x2="1238" y2="602"/>
+  <text class="section" x="44" y="638">③ 为什么不用原始分直接相加</text>
+  <text class="small" x="74" y="666">keyword 分数来自规则加权，vector 分数来自 1-distance，尺度天然不同；RRF 只使用排名，能稳定融合不同召回器和不同 query variant。</text>
+</svg>

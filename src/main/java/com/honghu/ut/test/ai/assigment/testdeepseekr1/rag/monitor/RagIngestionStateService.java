@@ -222,13 +222,32 @@ public class RagIngestionStateService {
                 detail);
     }
 
-    /** 终态：成功（独立事务）。 */
+    /**
+     * 将摄取事件标记为成功终态。
+     *
+     * <p>这个方法会同时把 {@code fileStatus} 设置为 SUCCESS，
+     * 把 {@code ragStatus} 设置为 SUCCESS，并写入 processedAt。
+     * 它使用独立事务提交，因此主流程后续即使还有非关键步骤失败，
+     * 已经完成的事件终态也不会被外层回滚影响。</p>
+     *
+     * @param eventId 摄取事件 ID
+     * @param detail 成功说明，通常写“文档索引完成”
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markEventSuccess(Long eventId, String detail) {
         finalizeEvent(eventId, RagIngestionEvent.FileStatus.SUCCESS, RagIngestionEvent.RagStatus.SUCCESS, detail);
     }
 
-    /** 终态：业务跳过（独立事务）。 */
+    /**
+     * 将摄取事件标记为业务跳过终态。
+     *
+     * <p>跳过不是系统错误，而是“这条消息已经消费完，但不会进入索引”的明确结果。
+     * 例如文件类型不支持、文件过大、抽取文本为空，都适合走 SKIPPED。
+     * 设置为 SKIPPED 后，上层可以安全 ack SQS 消息，避免无意义重试。</p>
+     *
+     * @param eventId 摄取事件 ID
+     * @param detail 跳过原因，供后台排查和状态展示使用
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markEventSkipped(Long eventId, String detail) {
         finalizeEvent(eventId, RagIngestionEvent.FileStatus.SKIPPED, RagIngestionEvent.RagStatus.SKIPPED, detail);
@@ -281,7 +300,16 @@ public class RagIngestionStateService {
         return maybe.get();
     }
 
-    /** 按 bucket+key 查文档。 */
+    /**
+     * 按 bucket 与 objectKey 查找文档主记录。
+     *
+     * <p>这里不用 fileId 查，是因为 S3 事件天然携带 bucket/key，
+     * 而同一个对象重复上传或同一 fileId 多版本更新时，bucket/key 更适合作为当前对象的物理定位。
+     * 该方法主要用于“同版本已索引则跳过”的幂等早退判断。</p>
+     *
+     * @param message 标准化后的上传事件
+     * @return 当前对象对应的文档主记录；不存在时为空
+     */
     public Optional<RagDocument> findDocument(S3UploadReceivedMessage message) {
         // 用 (bucketName, objectKey) 双键查找当前对象对应的文档主记录。
         return ragDocumentRepository.findByBucketNameAndObjectKey(message.bucketName(), message.objectKey());
@@ -421,6 +449,17 @@ public class RagIngestionStateService {
     }
 
 
+    /**
+     * 对日志字段做保护性缩略。
+     *
+     * <p>状态服务会频繁打印 deduplicationKey、sessionId 等字段。
+     * 对超长值做缩略可以保留排查所需的前缀，同时避免日志过长。
+     * 这个方法只影响日志展示，不影响数据库写入或幂等判断。</p>
+     *
+     * @param value 原始字段值
+     * @param maxLength 最大展示长度
+     * @return 缩略后的字符串
+     */
     private String abbreviate(String value, int maxLength) {
         // 日志字段太长时做保护性截断，避免 sessionId / deduplicationKey 刷爆日志。
         if (!StringUtils.hasText(value) || value.length() <= maxLength) {

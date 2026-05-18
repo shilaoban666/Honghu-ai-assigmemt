@@ -9,10 +9,10 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.record.PresignedUpload
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.RagAccessDeniedException;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.security.RagAccessGuard;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDocumentProcessService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagFileRegistrationService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.monitor.RagFileStatusStreamer;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.monitor.RagIngestionStatusService;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.document.upload.S3UploadService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
@@ -69,12 +69,11 @@ class RagControllerTest {
     private static final String CALLER_USERNAME = "alice";
     private static final String OBJECT_KEY = "alice/sess-1/pdf/file-001/report.pdf";
 
-    private S3UploadService s3UploadService;
     private RagFileRegistrationService ragFileRegistrationService;
     private RagIngestionStatusService ragIngestionStatusService;
     private RagFileStatusStreamer ragFileStatusStreamer;
     private RagAccessGuard ragAccessGuard;
-    private RagDownloadService ragDownloadService;
+    private RagDocumentProcessService ragDocumentProcessService;
     private AwsProperties awsProperties;
 
     private MockMvc mockMvc;
@@ -82,19 +81,18 @@ class RagControllerTest {
 
     @BeforeEach
     void setUp() {
-        s3UploadService = mock(S3UploadService.class);
         ragFileRegistrationService = mock(RagFileRegistrationService.class);
         ragIngestionStatusService = mock(RagIngestionStatusService.class);
         ragFileStatusStreamer = mock(RagFileStatusStreamer.class);
         ragAccessGuard = mock(RagAccessGuard.class);
-        ragDownloadService = mock(RagDownloadService.class);
+        ragDocumentProcessService = mock(RagDocumentProcessService.class);
         awsProperties = new AwsProperties();
         awsProperties.getS3().setPresignedUrlExpirationMinutes(15);
         objectMapper = new ObjectMapper();
 
         RagController controller = new RagController(
-                s3UploadService, ragFileRegistrationService, ragIngestionStatusService,
-                ragFileStatusStreamer, ragAccessGuard, ragDownloadService, awsProperties);
+                ragFileRegistrationService, ragIngestionStatusService,
+                ragFileStatusStreamer, ragAccessGuard, ragDocumentProcessService, awsProperties);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
@@ -132,14 +130,14 @@ class RagControllerTest {
                         .content(objectMapper.writeValueAsString(body)))
                 .andExpect(status().isForbidden());
 
-        verify(s3UploadService, never()).generatePresignedUploadUrl(eq(CALLER_USER_ID), eq("sess-1"), eq("pdf"), eq("report.pdf"));
+        verify(ragDocumentProcessService, never()).generatePresignedUploadUrl(eq(CALLER_USER_ID), eq("sess-1"), eq("pdf"), eq("report.pdf"));
     }
 
     @Test
     void uploadUrlShouldReturn200AndDtoWhenAuthorized() throws Exception {
         when(ragAccessGuard.requireSameUser(CALLER_USER_ID, CALLER_USER_ID))
                 .thenReturn(User.builder().userId(CALLER_USER_ID).username(CALLER_USERNAME).build());
-        when(s3UploadService.generatePresignedUploadUrl(CALLER_USER_ID, "sess-1", "pdf", "report.pdf"))
+        when(ragDocumentProcessService.generatePresignedUploadUrl(CALLER_USER_ID, "sess-1", "pdf", "report.pdf"))
                 .thenReturn(new PresignedUploadResult("https://s3/xxx", OBJECT_KEY, "application/pdf", "file-001"));
 
         UploadUrlRequest body = UploadUrlRequest.builder()
@@ -288,7 +286,7 @@ class RagControllerTest {
 
     @Test
     void downloadUrlShouldReturn200WhenAuthorized() throws Exception {
-        when(ragDownloadService.generatePresignedDownloadUrl(CALLER_USER_ID, "file-001", null))
+        when(ragDocumentProcessService.generatePresignedDownloadUrl(CALLER_USER_ID, "file-001", null))
                 .thenReturn("https://s3/download-001");
 
         mockMvc.perform(get("/api/v1/rag/files/{fileId}/download-url", "file-001")
@@ -300,7 +298,7 @@ class RagControllerTest {
 
     @Test
     void downloadUrlShouldReturn403WhenAccessDenied() throws Exception {
-        when(ragDownloadService.generatePresignedDownloadUrl(CALLER_USER_ID, "file-001", null))
+        when(ragDocumentProcessService.generatePresignedDownloadUrl(CALLER_USER_ID, "file-001", null))
                 .thenThrow(new RagAccessDeniedException("无权访问该文件"));
 
         mockMvc.perform(get("/api/v1/rag/files/{fileId}/download-url", "file-001")

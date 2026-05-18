@@ -2,7 +2,7 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.rag;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocumentChunk;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.emebding.RagVectorIndexingService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.index.embdding.RagVectorIndexingService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentChunkRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

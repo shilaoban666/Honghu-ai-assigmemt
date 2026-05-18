@@ -1,8 +1,8 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.listener;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.RagProperties;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.record.IngestionResult;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.document.ingest.DocumentIngestionService;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.document.ingest.RagEventMessageParser;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.index.DocumentIngestionService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.index.RagEventMessageParser;
 import io.awspring.cloud.sqs.annotation.SqsListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

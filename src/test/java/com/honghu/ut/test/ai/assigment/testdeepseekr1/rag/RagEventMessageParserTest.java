@@ -2,7 +2,7 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.rag;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.record.S3UploadReceivedMessage;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.document.ingest.RagEventMessageParser;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.index.RagEventMessageParser;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

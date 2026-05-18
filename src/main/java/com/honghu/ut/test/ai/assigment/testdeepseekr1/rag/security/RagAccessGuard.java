@@ -129,6 +129,22 @@ public class RagAccessGuard {
         }
     }
 
+    /**
+     * 校验已有会话是否属于当前调用者。
+     *
+     * <p>这个私有方法被两个路径复用：</p>
+     * <ol>
+     *     <li>会话原本就存在，调用者准备继续使用它；</li>
+     *     <li>并发创建同一个 sessionId 时，当前线程插入失败后重新查到了别人刚创建的会话。</li>
+     * </ol>
+     *
+     * <p>无论哪种路径，只要 session.userId 与 callerUserId 不一致，都必须拒绝。
+     * 这能防止攻击者猜测或复用别人的 sessionId，把文件挂到他人会话下。</p>
+     *
+     * @param callerUserId 当前请求调用者 userId
+     * @param sessionId 请求中携带的 sessionId，仅用于日志定位
+     * @param session 数据库中已存在的会话实体
+     */
     private void verifySessionOwnership(String callerUserId, String sessionId, ChatSession session) {
         // 这是所有“复用已有会话”路径的最后一道所有权校验。
         if (!Objects.equals(session.getUserId(), callerUserId)) {

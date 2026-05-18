@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="680" viewBox="0 0 1280 680" role="img" aria-labelledby="title desc">
+  <title id="title">RAG 检索作用域与 fallback</title>
+  <desc id="desc">展示 DefaultRagScopeResolver 如何从附件、chat、session 解析作用域，并在命中不足时逐级 fallback。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7f7b73"/></marker>
+    <marker id="arrowHot" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#f39a18"/></marker>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .title { font: 700 24px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #34322f; }
+      .subtitle { font: 500 13px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #6c6861; }
+      .section { font: 700 15px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #55514a; }
+      .label { font: 700 16px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #3f3f3f; }
+      .small { font: 500 12px "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", Arial, sans-serif; fill: #4f4b45; }
+      .code { font: 500 12px Consolas, "Microsoft YaHei", monospace; fill: #55514a; }
+      .node { rx: 8; ry: 8; stroke-width: 1.4; }
+      .neutral { fill: #f7f5ef; stroke: #aaa69d; }
+      .blue { fill: #e8f3ff; stroke: #6aa3df; }
+      .green { fill: #dff4ee; stroke: #4ba993; }
+      .orange { fill: #fff1dc; stroke: #d9963a; }
+      .purple { fill: #eeeaff; stroke: #8b80e8; }
+      .dash { stroke: #e5e0d8; stroke-width: 1.2; stroke-dasharray: 6 6; }
+      .arrow { stroke: #7f7b73; stroke-width: 1.4; fill: none; marker-end: url(#arrow); }
+      .hot { stroke: #f39a18; stroke-width: 1.9; fill: none; marker-end: url(#arrowHot); }
+      .thin { stroke: #7f7b73; stroke-width: 1.1; fill: none; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1280" height="680"/>
+  <text class="title" x="42" y="45">RAG 检索作用域与 fallback</text>
+  <text class="subtitle" x="42" y="70">默认策略 attachment_chat_first：先查本轮附件，命中不足再扩大到 chat，最后扩大到 session</text>
+
+  <text class="section" x="44" y="114">① 输入字段</text>
+  <rect class="node blue" x="42" y="132" width="236" height="118"/>
+  <text class="label" x="160" y="162" text-anchor="middle">RagRequest</text>
+  <text class="code" x="160" y="188" text-anchor="middle">attachmentFileIds</text>
+  <text class="code" x="160" y="208" text-anchor="middle">chatId</text>
+  <text class="code" x="160" y="228" text-anchor="middle">sessionId</text>
+
+  <rect class="node orange" x="340" y="132" width="236" height="118"/>
+  <text class="label" x="458" y="162" text-anchor="middle">DefaultRagScopeResolver</text>
+  <text class="small" x="458" y="188" text-anchor="middle">读取 scopeOverride</text>
+  <text class="small" x="458" y="208" text-anchor="middle">否则使用 defaultScope</text>
+  <text class="code" x="458" y="228" text-anchor="middle">attachment_chat_first</text>
+
+  <rect class="node neutral" x="638" y="132" width="250" height="118"/>
+  <text class="label" x="763" y="162" text-anchor="middle">EffectiveScope</text>
+  <text class="code" x="763" y="188" text-anchor="middle">primaryType</text>
+  <text class="code" x="763" y="208" text-anchor="middle">ownerFolder</text>
+  <text class="code" x="763" y="228" text-anchor="middle">allowFallback + 阈值</text>
+
+  <rect class="node green" x="950" y="132" width="246" height="118"/>
+  <text class="label" x="1073" y="162" text-anchor="middle">CandidateRetriever</text>
+  <text class="small" x="1073" y="188" text-anchor="middle">按 primaryType 选择查询</text>
+  <text class="code" x="1073" y="208" text-anchor="middle">ownerFolder 必须过滤</text>
+
+  <path class="hot" d="M278 191 H340"/>
+  <path class="hot" d="M576 191 H638"/>
+  <path class="hot" d="M888 191 H950"/>
+
+  <line class="dash" x1="42" y1="286" x2="1238" y2="286"/>
+  <text class="section" x="44" y="322">② fallback 链路</text>
+
+  <rect class="node purple" x="74" y="350" width="238" height="116"/>
+  <text class="label" x="193" y="380" text-anchor="middle">FILE_IDS</text>
+  <text class="small" x="193" y="405" text-anchor="middle">只查本轮附件</text>
+  <text class="code" x="193" y="427" text-anchor="middle">fileIds + ownerFolder</text>
+  <text class="small" x="193" y="448" text-anchor="middle">最精确，噪音最少</text>
+
+  <rect class="node blue" x="386" y="350" width="238" height="116"/>
+  <text class="label" x="505" y="380" text-anchor="middle">CHAT</text>
+  <text class="small" x="505" y="405" text-anchor="middle">查当前消息所在 chat</text>
+  <text class="code" x="505" y="427" text-anchor="middle">chatId + ownerFolder</text>
+  <text class="small" x="505" y="448" text-anchor="middle">覆盖本轮上下文</text>
+
+  <rect class="node green" x="698" y="350" width="238" height="116"/>
+  <text class="label" x="817" y="380" text-anchor="middle">SESSION</text>
+  <text class="small" x="817" y="405" text-anchor="middle">查整个会话文件</text>
+  <text class="code" x="817" y="427" text-anchor="middle">sessionId + ownerFolder</text>
+  <text class="small" x="817" y="448" text-anchor="middle">最宽兜底范围</text>
+
+  <rect class="node neutral" x="1010" y="350" width="188" height="116"/>
+  <text class="label" x="1104" y="380" text-anchor="middle">EMPTY</text>
+  <text class="small" x="1104" y="405" text-anchor="middle">无有效作用域</text>
+  <text class="code" x="1104" y="427" text-anchor="middle">直接返回空</text>
+
+  <path class="hot" d="M312 408 H386"/>
+  <path class="hot" d="M624 408 H698"/>
+  <path class="thin" d="M936 408 H1010"/>
+  <text class="small" x="348" y="390" text-anchor="middle">命中不足</text>
+  <text class="small" x="660" y="390" text-anchor="middle">仍不足</text>
+
+  <line class="dash" x1="42" y1="500" x2="1238" y2="500"/>
+  <text class="section" x="44" y="536">③ 触发条件与降权</text>
+
+  <rect class="node orange" x="90" y="558" width="324" height="74"/>
+  <text class="label" x="252" y="586" text-anchor="middle">shouldFallback(...)</text>
+  <text class="code" x="252" y="611" text-anchor="middle">candidateCount &lt; fallbackMinHits  OR  bestScore &lt; fallbackMinScore</text>
+
+  <rect class="node green" x="478" y="558" width="304" height="74"/>
+  <text class="label" x="630" y="586" text-anchor="middle">sessionPenaltyFactor</text>
+  <text class="small" x="630" y="611" text-anchor="middle">fallback 到 SESSION 时 rawScore 乘 0.85</text>
+
+  <rect class="node blue" x="846" y="558" width="324" height="74"/>
+  <text class="label" x="1008" y="586" text-anchor="middle">安全边界</text>
+  <text class="small" x="1008" y="611" text-anchor="middle">任何查询都必须携带 ownerFolder 过滤</text>
+</svg>

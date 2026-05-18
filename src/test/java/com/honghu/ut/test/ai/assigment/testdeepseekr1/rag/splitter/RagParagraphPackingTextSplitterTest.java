@@ -2,6 +2,7 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.splitter;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.RagProperties;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.record.ChunkCandidate;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.index.splitter.RagParagraphPackingTextSplitter;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 

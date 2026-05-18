@@ -7,6 +7,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.RagAccessDeniedE
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.ChatService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDocumentProcessService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.security.RagAccessGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,7 +30,7 @@ class ChatControllerTest {
     private ChatMessageRepository chatMessageRepository;
     private RagDocumentRepository ragDocumentRepository;
     private RagAccessGuard ragAccessGuard;
-    private RagDownloadService ragDownloadService;
+    private RagDocumentProcessService ragDocumentProcessService;
     private MockMvc mockMvc;
 
     @BeforeEach
@@ -38,8 +39,8 @@ class ChatControllerTest {
         chatMessageRepository = mock(ChatMessageRepository.class);
         ragDocumentRepository = mock(RagDocumentRepository.class);
         ragAccessGuard = mock(RagAccessGuard.class);
-        ragDownloadService = mock(RagDownloadService.class);
-        ChatController controller = new ChatController(chatService, chatMessageRepository, ragDocumentRepository, ragAccessGuard, ragDownloadService);
+        ragDocumentProcessService = mock(RagDocumentProcessService.class);
+        ChatController controller = new ChatController(chatService, chatMessageRepository, ragDocumentRepository, ragAccessGuard, ragDocumentProcessService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
 
@@ -62,7 +63,7 @@ class ChatControllerTest {
         when(ragDocumentRepository.findByChatIdIn(List.of(10086L))).thenReturn(List.of(
                 RagDocument.builder().chatId(10086L).fileId("file-1").fileName("report.pdf").fileType("pdf").fileSize(123L).status(RagDocument.Status.INDEXED).createdAt(LocalDateTime.now()).build()
         ));
-        when(ragDownloadService.generatePresignedDownloadUrl("u-1", "file-1", null)).thenReturn("https://s3/download");
+        when(ragDocumentProcessService.generatePresignedDownloadUrl("u-1", "file-1", null)).thenReturn("https://s3/download");
 
         mockMvc.perform(get("/api/v1/chat/history/{sessionId}", "sess-1")
                         .header("X-User-Id", "u-1")
