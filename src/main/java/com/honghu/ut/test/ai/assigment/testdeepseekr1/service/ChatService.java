@@ -10,7 +10,8 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retiriever.RagRetrievalService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retrieval.retriever.RagRetrievalService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retrieval.pipeline.RagRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
@@ -317,9 +318,16 @@ public class ChatService {
         // 简单 RAG：如果当前 session 已经有被 SQS 摄取并成功索引的文档，
         // 这里会从 rag_document_chunk 中做一次轻量召回，并拼成额外的 SystemMessage。
         // 这样模型就能在回答时优先参考“本会话已上传资料”，形成最基础可用版 RAG。
-        // 把 userId 一并传入：RagRetrievalService 内部会校验该 sessionId 归属当前 userId
-        // 并按 ownerFolder=username 二次过滤，防止跨用户读到别人的文档。
-        String ragContextPrompt = ragRetrievalService.buildContextBlock(request.getUserId(), finalSessionId, request.getMessage());
+        // - Pipeline 模式：会使用 chatId + attachmentFileIds 做精确作用域检索
+        RagRequest ragRequest = RagRequest.builder()
+                .userId(request.getUserId())
+                .sessionId(finalSessionId)
+                .chatId(userMsg.getChatId())
+                .attachmentFileIds(request.getAttachmentFileIds())
+                .query(request.getMessage())
+                .recentHistory(history)
+                .build();
+        String ragContextPrompt = ragRetrievalService.buildContextBlock(ragRequest);
         // 根据 system prompt 长度动态计算本次还能留给历史消息多少 token 预算
         int historyTokenLimit = resolveHistoryTokenLimit(systemPrompt, memorySystemPrompts, ragContextPrompt);
         // 从新到旧累计 token，达到阈值立刻停止，拿到最近一段连续上下文

@@ -39,7 +39,7 @@ spring:
       chat:
         enabled: false
       embedding:
-        enabled: true
+        enabled: ${SPRING_AI_OPENAI_EMBEDDING_ENABLED:false}
         options:
           model: ${EMBEDDING_MODEL:text-embedding-v3}
           dimensions: ${EMBEDDING_DIMENSIONS:1024}
@@ -75,7 +75,6 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
-#      password: ${REDIS_PASSWORD:12345}
       timeout: 2s
       repositories:
         enabled: false
@@ -219,8 +218,8 @@ app:
         chat-completions-path: ${GEMINI_CHAT_COMPLETIONS_PATH:/v1beta/openai/chat/completions}
         use-api-key: true
         api-key: ${GEMINI_API_KEY:}
-        api-key-header: ${GEMINI_API_KEY_HEADER:Authorization}
-        api-key-prefix: ${GEMINI_API_KEY_PREFIX:Bearer }
+#        api-key-header: ${GEMINI_API_KEY_HEADER:Authorization}
+#        api-key-prefix: ${GEMINI_API_KEY_PREFIX:Bearer }
 
       # 暂时禁用 nano-banana 模型
       nano-banana:
@@ -459,4 +458,47 @@ app:
       max-context-characters: ${APP_RAG_RETRIEVAL_MAX_CONTEXT_CHARACTERS:3000}
       # 关键词最短长度
       min-keyword-length: ${APP_RAG_RETRIEVAL_MIN_KEYWORD_LENGTH:2}
+
+      # ── 作用域 ──
+      scope:
+        # P2: 默认 attachment_chat_first（P1 已验证 session_only 兼容）
+        default: ${APP_RAG_SCOPE_DEFAULT:attachment_chat_first}
+        fallback-min-hits: ${APP_RAG_SCOPE_FALLBACK_MIN_HITS:2}
+        fallback-min-score: ${APP_RAG_SCOPE_FALLBACK_MIN_SCORE:0.1}
+        session-penalty-factor: ${APP_RAG_SCOPE_SESSION_PENALTY:0.85}
+
+      # ── Fusion ──
+      fusion:
+        enabled: ${APP_RAG_FUSION_ENABLED:false}
+        algorithm: rrf
+        rrf-k: ${APP_RAG_FUSION_RRF_K:60}
+        candidate-limit-after-fusion: ${APP_RAG_FUSION_CANDIDATE_LIMIT:20}
+
+      # ── Rerank ──
+      rerank:
+        enabled: ${APP_RAG_RERANK_ENABLED:false}
+        implementation: ${APP_RAG_RERANK_IMPL:noop}
+        candidate-limit: ${APP_RAG_RERANK_CANDIDATE_LIMIT:10}
+        timeout-ms: ${APP_RAG_RERANK_TIMEOUT_MS:5000}
+
+    # ── Query Rewrite ──
+    query-rewrite:
+      enabled: ${APP_RAG_QUERY_REWRITE_ENABLED:false}
+      max-variants: ${APP_RAG_QUERY_REWRITE_MAX_VARIANTS:3}
+      pronoun-resolve-enabled: ${APP_RAG_QUERY_REWRITE_PRONOUN_RESOLVE:false}
+
+    # ── Augmentor ──
+    augmentor:
+      dedup-enabled: ${APP_RAG_AUGMENTOR_DEDUP:true}
+      compress-enabled: ${APP_RAG_AUGMENTOR_COMPRESS:true}
+      citation-enabled: ${APP_RAG_AUGMENTOR_CITATION:true}
+      budget-enabled: ${APP_RAG_AUGMENTOR_BUDGET:true}
+      diversity-enabled: ${APP_RAG_AUGMENTOR_DIVERSITY:false}
+      reorder-enabled: ${APP_RAG_AUGMENTOR_REORDER:false}
+      token-budget: ${APP_RAG_AUGMENTOR_TOKEN_BUDGET:1500}
+
+    # ── Observability ──
+    observability:
+      metrics-enabled: ${APP_RAG_OBSERVABILITY_METRICS:true}
+      log-detail-level: ${APP_RAG_OBSERVABILITY_LOG_LEVEL:summary}
 

@@ -4,8 +4,8 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.RagPrope
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.record.S3UploadReceivedMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagIngestionEvent;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.document.ingest.DocumentIngestionService;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.document.ingest.RagEventMessageParser;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.index.DocumentIngestionService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.index.RagEventMessageParser;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagIngestionEventRepository;
 import org.junit.jupiter.api.Test;

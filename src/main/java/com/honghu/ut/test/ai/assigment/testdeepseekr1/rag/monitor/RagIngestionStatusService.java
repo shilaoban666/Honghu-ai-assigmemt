@@ -88,6 +88,16 @@ public class RagIngestionStatusService {
                 .toList();
     }
 
+    /**
+     * 校验调用者身份是否存在。
+     *
+     * <p>状态查询接口的安全边界依赖 controller 传入的 {@code callerUserId}。
+     * 这里不做“匿名默认用户”这类兜底，因为文件状态属于用户私有数据；
+     * 一旦缺少调用者身份，应立即拒绝，而不是继续查库。</p>
+     *
+     * @param callerUserId 调用者用户 ID
+     * @throws RagAccessDeniedException 当 callerUserId 为空时抛出
+     */
     private void requireUser(String callerUserId) {
         // 当前项目的身份边界基于 X-User-Id 约定，因此 callerUserId 缺失时直接拒绝。
         if (!StringUtils.hasText(callerUserId)) {
@@ -130,6 +140,19 @@ public class RagIngestionStatusService {
         }
     }
 
+    /**
+     * 将文档主记录聚合成前端状态响应。
+     *
+     * <p>RAG 文件状态并不只来自 {@link RagDocument}：
+     * 文档主表记录“文件最终是否可用于检索”，摄取事件表记录“异步处理当前走到哪一步”。
+     * 这个方法把两者合并成一个 {@link RagFileStatusResponse}，让前端不用理解内部表结构。</p>
+     *
+     * <p>这里按 {@code bucketName + objectKey} 查最新事件，而不是只按 objectKey 查，
+     * 是为了避免不同 bucket 中同名对象互相串状态。</p>
+     *
+     * @param document 已完成归属校验的文档主记录
+     * @return 面向前端的稳定状态 DTO
+     */
     private RagFileStatusResponse toResponse(RagDocument document) {
         // 对 document 做非空保护，避免后面状态映射逻辑隐式 NPE。
         RagDocument safeDocument = Objects.requireNonNull(document, "document must not be null");
@@ -174,6 +197,19 @@ public class RagIngestionStatusService {
                 .build();
     }
 
+    /**
+     * 判断文件处理是否已经到达终态。
+     *
+     * <p>这里的“完成”不等于“成功”。INDEXED、FAILED、SKIPPED 都是终态：
+     * 前端拿到 completed=true 后可以停止轮询，但还需要看 availableForChat 或具体状态判断是否能聊天。</p>
+     *
+     * <p>优先参考文档主表状态，因为它是 RAG 检索可用性的最终来源；
+     * 当文档主表还没到终态时，再参考 ingestion event 的 fileStatus。</p>
+     *
+     * @param documentStatus 文档主表状态
+     * @param ingestionStatus 摄取事件外层状态
+     * @return 是否已经完成处理
+     */
     private boolean isCompleted(RagDocument.Status documentStatus, RagIngestionEvent.FileStatus ingestionStatus) {
         // 只要文档主表已经是终态，就直接视为处理完成。
         if (documentStatus == RagDocument.Status.INDEXED

@@ -52,7 +52,14 @@ public class RagFileStatusStreamer {
     private final RagIngestionStatusService ragIngestionStatusService;
     private final ScheduledExecutorService scheduler;
 
-    /** 测试可注入自定义 scheduler；生产环境用默认有界池。 */
+    /**
+     * 生产环境构造器。
+     *
+     * <p>这里只注入状态查询服务，调度线程池由类内部创建。
+     * 线程池使用 daemon 线程，是为了让应用关闭时不会被 SSE 轮询线程阻塞。</p>
+     *
+     * @param ragIngestionStatusService RAG 文件状态查询服务
+     */
     @Autowired
     public RagFileStatusStreamer(RagIngestionStatusService ragIngestionStatusService) {
         // 生产默认构造：创建一个固定大小的 daemon 调度线程池，专门服务 SSE 轮询。
@@ -189,6 +196,15 @@ public class RagFileStatusStreamer {
         return Math.max(min, Math.min(max, value));
     }
 
+    /**
+     * 取消某条 SSE 连接对应的后台轮询任务。
+     *
+     * <p>同一个 emitter 可能因为正常完成、超时、异常、客户端断连等多个回调同时触发取消。
+     * 这里用 {@link AtomicReference#getAndSet(Object)} 原子取出并清空 future，
+     * 确保重复调用时只有第一次真正 cancel，后续调用安全无副作用。</p>
+     *
+     * @param ref 保存 ScheduledFuture 的原子引用
+     */
     private static void cancel(AtomicReference<ScheduledFuture<?>> ref) {
         // 原子地取出并清空 future，确保多处回调重复 cancel 时也安全。
         ScheduledFuture<?> f = ref.getAndSet(null);
@@ -197,6 +213,14 @@ public class RagFileStatusStreamer {
         }
     }
 
+    /**
+     * 创建 SSE 轮询线程的 ThreadFactory。
+     *
+     * <p>线程名固定为 {@code rag-sse-poller}，方便通过日志、线程 dump 或监控快速识别；
+     * daemon=true 表示这些后台轮询线程不会阻止 JVM 退出。</p>
+     *
+     * @return 用于 ScheduledExecutorService 的线程工厂
+     */
     private static ThreadFactory daemonThreadFactory() {
         return runnable -> {
             // 线程名固定成 rag-sse-poller，便于在线程 dump 或监控中快速识别来源。

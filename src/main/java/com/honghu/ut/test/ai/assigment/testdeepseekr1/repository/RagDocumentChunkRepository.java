@@ -28,6 +28,18 @@ public interface RagDocumentChunkRepository extends JpaRepository<RagDocumentChu
                                                                   @Param("status") RagDocument.Status status,
                                                                   Pageable pageable);
 
+    @Query("select c from RagDocumentChunk c join fetch c.document d where d.fileId in :fileIds and d.ownerFolder = :ownerFolder and d.status = :status order by d.updatedAt desc, c.chunkIndex asc")
+    List<RagDocumentChunk> findCandidateChunksByFileIdsAndOwner(@Param("fileIds") List<String> fileIds,
+                                                                 @Param("ownerFolder") String ownerFolder,
+                                                                 @Param("status") RagDocument.Status status,
+                                                                 Pageable pageable);
+
+    @Query("select c from RagDocumentChunk c join fetch c.document d where d.chatId = :chatId and d.ownerFolder = :ownerFolder and d.status = :status order by d.updatedAt desc, c.chunkIndex asc")
+    List<RagDocumentChunk> findCandidateChunksByChatIdAndOwner(@Param("chatId") Long chatId,
+                                                                @Param("ownerFolder") String ownerFolder,
+                                                                @Param("status") RagDocument.Status status,
+                                                                Pageable pageable);
+
     @Query("select c from RagDocumentChunk c join fetch c.document d where d.documentId = :documentId order by c.chunkIndex asc")
     List<RagDocumentChunk> findByDocumentIdWithDocument(@Param("documentId") Long documentId);
 
