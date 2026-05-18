@@ -1,0 +1,489 @@
+databaseChangeLog:
+  # 保留原 XML logicalFilePath，确保 Liquibase 将这份 YAML 继续识别为历史那套变更集。
+  - logicalFilePath: "DB/changelog/db.changelog-ai-task-keywords.xml"
+  - changeSet:
+      id: "4"
+      author: "shilaoban"
+      comment: "创建 AI 任务路由关键词表，并初始化任务分类关键词"
+      changes:
+        - createTable:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "task_type"
+                  type: "VARCHAR(32)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "keyword"
+                  type: "VARCHAR(128)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "enabled"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "priority"
+                  type: "INT"
+                  defaultValueNumeric: 100
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: "ai_task_keyword"
+            columnNames: "task_type, keyword"
+            constraintName: "uk_ai_task_keyword_type_keyword"
+        - createIndex:
+            indexName: "idx_ai_task_keyword_enabled_priority"
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "enabled"
+              - column:
+                  name: "priority"
+        - createIndex:
+            indexName: "idx_ai_task_keyword_type"
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "代码"
+              - column:
+                  name: "priority"
+                  valueNumeric: 10
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "程序"
+              - column:
+                  name: "priority"
+                  valueNumeric: 11
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "java"
+              - column:
+                  name: "priority"
+                  valueNumeric: 12
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "python"
+              - column:
+                  name: "priority"
+                  valueNumeric: 13
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "javascript"
+              - column:
+                  name: "priority"
+                  valueNumeric: 14
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "sql"
+              - column:
+                  name: "priority"
+                  valueNumeric: 15
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "bug"
+              - column:
+                  name: "priority"
+                  valueNumeric: 16
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "异常"
+              - column:
+                  name: "priority"
+                  valueNumeric: 17
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "重构"
+              - column:
+                  name: "priority"
+                  valueNumeric: 18
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "CODE"
+              - column:
+                  name: "keyword"
+                  value: "优化"
+              - column:
+                  name: "priority"
+                  valueNumeric: 19
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DESIGN"
+              - column:
+                  name: "keyword"
+                  value: "设计"
+              - column:
+                  name: "priority"
+                  valueNumeric: 30
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DESIGN"
+              - column:
+                  name: "keyword"
+                  value: "架构"
+              - column:
+                  name: "priority"
+                  valueNumeric: 31
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DESIGN"
+              - column:
+                  name: "keyword"
+                  value: "方案"
+              - column:
+                  name: "priority"
+                  valueNumeric: 32
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DESIGN"
+              - column:
+                  name: "keyword"
+                  value: "流程图"
+              - column:
+                  name: "priority"
+                  valueNumeric: 33
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DESIGN"
+              - column:
+                  name: "keyword"
+                  value: "时序图"
+              - column:
+                  name: "priority"
+                  valueNumeric: 34
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DESIGN"
+              - column:
+                  name: "keyword"
+                  value: "模块划分"
+              - column:
+                  name: "priority"
+                  valueNumeric: 35
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "TEXT"
+              - column:
+                  name: "keyword"
+                  value: "润色"
+              - column:
+                  name: "priority"
+                  valueNumeric: 50
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "TEXT"
+              - column:
+                  name: "keyword"
+                  value: "改写"
+              - column:
+                  name: "priority"
+                  valueNumeric: 51
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "TEXT"
+              - column:
+                  name: "keyword"
+                  value: "翻译"
+              - column:
+                  name: "priority"
+                  valueNumeric: 52
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "TEXT"
+              - column:
+                  name: "keyword"
+                  value: "摘要"
+              - column:
+                  name: "priority"
+                  valueNumeric: 53
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "TEXT"
+              - column:
+                  name: "keyword"
+                  value: "总结"
+              - column:
+                  name: "priority"
+                  valueNumeric: 54
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "TEXT"
+              - column:
+                  name: "keyword"
+                  value: "文案"
+              - column:
+                  name: "priority"
+                  valueNumeric: 55
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DATA_PROCESSING"
+              - column:
+                  name: "keyword"
+                  value: "数据处理"
+              - column:
+                  name: "priority"
+                  valueNumeric: 70
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DATA_PROCESSING"
+              - column:
+                  name: "keyword"
+                  value: "清洗"
+              - column:
+                  name: "priority"
+                  valueNumeric: 71
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DATA_PROCESSING"
+              - column:
+                  name: "keyword"
+                  value: "去重"
+              - column:
+                  name: "priority"
+                  valueNumeric: 72
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DATA_PROCESSING"
+              - column:
+                  name: "keyword"
+                  value: "转换"
+              - column:
+                  name: "priority"
+                  valueNumeric: 73
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DATA_PROCESSING"
+              - column:
+                  name: "keyword"
+                  value: "etl"
+              - column:
+                  name: "priority"
+                  valueNumeric: 74
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "DATA_PROCESSING"
+              - column:
+                  name: "keyword"
+                  value: "csv"
+              - column:
+                  name: "priority"
+                  valueNumeric: 75
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "ANALYSIS"
+              - column:
+                  name: "keyword"
+                  value: "分析"
+              - column:
+                  name: "priority"
+                  valueNumeric: 90
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "ANALYSIS"
+              - column:
+                  name: "keyword"
+                  value: "原因"
+              - column:
+                  name: "priority"
+                  valueNumeric: 91
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "ANALYSIS"
+              - column:
+                  name: "keyword"
+                  value: "区别"
+              - column:
+                  name: "priority"
+                  valueNumeric: 92
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "ANALYSIS"
+              - column:
+                  name: "keyword"
+                  value: "为什么"
+              - column:
+                  name: "priority"
+                  valueNumeric: 93
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "ANALYSIS"
+              - column:
+                  name: "keyword"
+                  value: "原理"
+              - column:
+                  name: "priority"
+                  valueNumeric: 94
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "ANALYSIS"
+              - column:
+                  name: "keyword"
+                  value: "how"
+              - column:
+                  name: "priority"
+                  valueNumeric: 95
+        - insert:
+            tableName: "ai_task_keyword"
+            columns:
+              - column:
+                  name: "task_type"
+                  value: "ANALYSIS"
+              - column:
+                  name: "keyword"
+                  value: "why"
+              - column:
+                  name: "priority"
+                  valueNumeric: 96

@@ -75,6 +75,7 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
+      password: ${REDIS_PASSWORD:12345}
       timeout: 2s
       repositories:
         enabled: false
@@ -87,7 +88,10 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
   liquibase:
-    change-log: classpath:DB/changelog/db.changelog-master.xml
+    # 主入口改为 YAML，便于后续维护；
+    # 各 YAML changelog 内仍保留原 XML logicalFilePath，
+    # 这样不会改变 Liquibase 已执行变更集的身份与 checksum 归属。
+    change-log: classpath:DB/changelog/db.changelog-master.yaml
     enabled: true
 
 # Server Configuration
@@ -218,8 +222,8 @@ app:
         chat-completions-path: ${GEMINI_CHAT_COMPLETIONS_PATH:/v1beta/openai/chat/completions}
         use-api-key: true
         api-key: ${GEMINI_API_KEY:}
-#        api-key-header: ${GEMINI_API_KEY_HEADER:Authorization}
-#        api-key-prefix: ${GEMINI_API_KEY_PREFIX:Bearer }
+        api-key-header: ${GEMINI_API_KEY_HEADER:Authorization}
+        api-key-prefix: ${GEMINI_API_KEY_PREFIX:Bearer }
 
       # 暂时禁用 nano-banana 模型
       nano-banana:

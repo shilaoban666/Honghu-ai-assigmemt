@@ -1,0 +1,107 @@
+databaseChangeLog:
+  # 运行时入口已经切换到 YAML-first；
+  # 这里继续保留原 XML logicalFilePath，是为了兼容既有 DATABASECHANGELOG 记录。
+  - logicalFilePath: "DB/changelog/db.changelog-master.xml"
+  - changeSet:
+      id: "1"
+      author: "shilaoban"
+      changes:
+        - createTable:
+            tableName: "chat_session"
+            columns:
+              - column:
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "user_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "user_name"
+                  type: "VARCHAR(255)"
+              - column:
+                  name: "system_role"
+                  type: "VARCHAR(64)"
+              - column:
+                  name: "session_name"
+                  type: "VARCHAR(64)"
+              - column:
+                  name: "session_status"
+                  type: "VARCHAR(64)"
+                  defaultValue: "active"
+              - column:
+                  name: "title"
+                  type: "VARCHAR(255)"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+  - changeSet:
+      id: "2"
+      author: "shilaoban"
+      changes:
+        - createTable:
+            tableName: "chat_message"
+            columns:
+              - column:
+                  name: "chat_id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+                    foreignKeyName: "fk_chat_message_session"
+                    referencedTableName: "chat_session"
+                    referencedColumnNames: "session_id"
+              - column:
+                  name: "chat_role"
+                  type: "VARCHAR(20)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "content_type"
+                  type: "VARCHAR(20)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "status"
+                  type: "VARCHAR(20)"
+                  defaultValue: "pending"
+              - column:
+                  name: "content"
+                  type: "TEXT"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - createIndex:
+            indexName: "idx_session_id"
+            tableName: "chat_message"
+            columns:
+              - column:
+                  name: "session_id"
+  - include:
+      file: "DB/changelog/db.changelog-users.yaml"
+      relativeToChangelogFile: false
+  - include:
+      file: "DB/changelog/db.changelog-ai-task-keywords.yaml"
+      relativeToChangelogFile: false
+  - include:
+      file: "DB/changelog/db.changelog-memory-summary.yaml"
+      relativeToChangelogFile: false
+  - include:
+      file: "DB/changelog/db.changelog-ai-models.yaml"
+      relativeToChangelogFile: false
+  - include:
+      file: "DB/changelog/db.changelog-rag.yaml"
+      relativeToChangelogFile: false
