@@ -6,6 +6,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSessionProfile;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.UserProfileSnapshot;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.memory.MemorySummaryClient;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionProfileRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;

@@ -8,12 +8,11 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.UploadUrlRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.UploadUrlResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.record.PresignedUploadResult;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.RagAccessDeniedException;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagAccessGuard;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDownloadService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDocumentProcessService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.security.RagAccessGuard;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagFileRegistrationService;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagFileStatusStreamer;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagIngestionStatusService;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.S3UploadService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.monitor.RagFileStatusStreamer;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.monitor.RagIngestionStatusService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -71,12 +70,11 @@ public class RagController {
     /** 鉴权请求头键名，与 ChatController 保持一致。 */
     static final String USER_ID_HEADER = "X-User-Id";
 
-    private final S3UploadService s3UploadService;
     private final RagFileRegistrationService ragFileRegistrationService;
     private final RagIngestionStatusService ragIngestionStatusService;
     private final RagFileStatusStreamer ragFileStatusStreamer;
     private final RagAccessGuard ragAccessGuard;
-    private final RagDownloadService ragDownloadService;
+    private final RagDocumentProcessService ragDocumentProcessService;
     private final AwsProperties awsProperties;
 
     // ===========================================================
@@ -109,7 +107,7 @@ public class RagController {
                 userId, request.getSessionId(), request.getFileType());
 
         try {
-            PresignedUploadResult result = s3UploadService.generatePresignedUploadUrl(
+            PresignedUploadResult result = ragDocumentProcessService.generatePresignedUploadUrl(
                     userId, request.getSessionId(), request.getFileType(), request.getFileName());
             return ResponseEntity.ok(toUploadUrlResponse(result, request));
         } catch (IllegalArgumentException ex) {
@@ -165,7 +163,7 @@ public class RagController {
             @RequestHeader(value = USER_ID_HEADER, required = false) @Parameter(description = "调用者 user_id") String headerUserId,
             @PathVariable @Parameter(description = "文件唯一 ID") String fileId) {
         try {
-            String downloadUrl = ragDownloadService.generatePresignedDownloadUrl(headerUserId, fileId, null);
+            String downloadUrl = ragDocumentProcessService.generatePresignedDownloadUrl(headerUserId, fileId, null);
             long expiresInSeconds = java.time.Duration.ofMinutes(awsProperties.getS3().getPresignedUrlExpirationMinutes()).getSeconds();
             return ResponseEntity.ok(new DownloadUrlResponse(downloadUrl, expiresInSeconds));
         } catch (RagAccessDeniedException ex) {

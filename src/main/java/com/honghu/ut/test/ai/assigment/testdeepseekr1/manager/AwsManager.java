@@ -1,7 +1,7 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.manager;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AwsProperties;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.S3UploadService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.RagDocumentProcessService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.Nullable;
@@ -26,7 +26,7 @@ import java.util.Map;
  * AWS 资源统一管理器。
  *
  * <p>封装所有 AWS 服务（S3、SQS）的底层操作，
- * 业务层（如 {@link S3UploadService}）通过该管理器间接调用 AWS SDK，
+ * 业务层（如 {@link RagDocumentProcessService}）通过该管理器间接调用 AWS SDK，
  * 实现 <strong>基础设施与业务逻辑解耦</strong>。</p>
  *
  * <h3>设计思路</h3>
