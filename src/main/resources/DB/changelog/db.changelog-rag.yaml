@@ -1,0 +1,344 @@
+databaseChangeLog:
+  # 物理 XML 文件已可移除，但 logicalFilePath 仍需保持原值，避免历史变更身份漂移。
+  - logicalFilePath: "DB/changelog/db.changelog-rag.xml"
+  - changeSet:
+      id: "rag-1-create-document-table"
+      author: "shilaoban"
+      changes:
+        - createTable:
+            tableName: "rag_document"
+            columns:
+              - column:
+                  name: "document_id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "bucket_name"
+                  type: "VARCHAR(128)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "object_key"
+                  type: "VARCHAR(1024)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "object_etag"
+                  type: "VARCHAR(128)"
+              - column:
+                  name: "file_name"
+                  type: "VARCHAR(255)"
+              - column:
+                  name: "file_type"
+                  type: "VARCHAR(32)"
+              - column:
+                  name: "file_size"
+                  type: "BIGINT"
+              - column:
+                  name: "owner_folder"
+                  type: "VARCHAR(128)"
+              - column:
+                  name: "session_id"
+                  type: "VARCHAR(128)"
+              - column:
+                  name: "file_id"
+                  type: "VARCHAR(64)"
+              - column:
+                  name: "status"
+                  type: "VARCHAR(32)"
+                  defaultValue: "RECEIVED"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "extracted_character_count"
+                  type: "INT"
+              - column:
+                  name: "chunk_count"
+                  type: "INT"
+              - column:
+                  name: "error_message"
+                  type: "TEXT"
+              - column:
+                  name: "last_indexed_at"
+                  type: "TIMESTAMP"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: "rag_document"
+            columnNames: "bucket_name, object_key"
+            constraintName: "uk_rag_document_bucket_object_key"
+        - createIndex:
+            tableName: "rag_document"
+            indexName: "idx_rag_document_session_status"
+            columns:
+              - column:
+                  name: "session_id"
+              - column:
+                  name: "status"
+  - changeSet:
+      id: "rag-2-create-document-chunk-table"
+      author: "shilaoban"
+      changes:
+        - createTable:
+            tableName: "rag_document_chunk"
+            columns:
+              - column:
+                  name: "chunk_id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "document_id"
+                  type: "BIGINT"
+                  constraints:
+                    nullable: false
+                    foreignKeyName: "fk_rag_document_chunk_document"
+                    referencedTableName: "rag_document"
+                    referencedColumnNames: "document_id"
+              - column:
+                  name: "chunk_index"
+                  type: "INT"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "content"
+                  type: "TEXT"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "char_count"
+                  type: "INT"
+              - column:
+                  name: "token_estimate"
+                  type: "INT"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: "rag_document_chunk"
+            columnNames: "document_id, chunk_index"
+            constraintName: "uk_rag_document_chunk_index"
+        - createIndex:
+            tableName: "rag_document_chunk"
+            indexName: "idx_rag_document_chunk_document"
+            columns:
+              - column:
+                  name: "document_id"
+  - changeSet:
+      id: "rag-3-create-ingestion-event-table"
+      author: "shilaoban"
+      changes:
+        - createTable:
+            tableName: "rag_ingestion_event"
+            columns:
+              - column:
+                  name: "event_id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "queue_message_id"
+                  type: "VARCHAR(128)"
+              - column:
+                  name: "deduplication_key"
+                  type: "VARCHAR(2048)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "bucket_name"
+                  type: "VARCHAR(128)"
+              - column:
+                  name: "object_key"
+                  type: "VARCHAR(1024)"
+              - column:
+                  name: "event_name"
+                  type: "VARCHAR(128)"
+              - column:
+                  name: "file_status"
+                  type: "VARCHAR(32)"
+                  defaultValue: "RECEIVED"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "rag_status"
+                  type: "VARCHAR(32)"
+                  defaultValue: "RECEIVED"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "error_message"
+                  type: "TEXT"
+              - column:
+                  name: "processed_at"
+                  type: "TIMESTAMP"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            tableName: "rag_ingestion_event"
+            columnNames: "deduplication_key"
+            constraintName: "uk_rag_ingestion_event_deduplication_key"
+  - changeSet:
+      id: "rag-4-rename-document-file-status-to-status"
+      author: "shilaoban"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - and:
+            - tableExists:
+                tableName: "rag_document"
+            - columnExists:
+                tableName: "rag_document"
+                columnName: "file_status"
+            - not:
+                - columnExists:
+                    tableName: "rag_document"
+                    columnName: "status"
+      changes:
+        - renameColumn:
+            tableName: "rag_document"
+            oldColumnName: "file_status"
+            newColumnName: "status"
+            columnDataType: "VARCHAR(32)"
+  - changeSet:
+      id: "rag-5-rename-event-status-to-file-status"
+      author: "shilaoban"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - and:
+            - tableExists:
+                tableName: "rag_ingestion_event"
+            - columnExists:
+                tableName: "rag_ingestion_event"
+                columnName: "status"
+            - not:
+                - columnExists:
+                    tableName: "rag_ingestion_event"
+                    columnName: "file_status"
+      changes:
+        - renameColumn:
+            tableName: "rag_ingestion_event"
+            oldColumnName: "status"
+            newColumnName: "file_status"
+            columnDataType: "VARCHAR(32)"
+  - changeSet:
+      id: "rag-6-add-document-file-id-index"
+      author: "shilaoban"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - and:
+            - tableExists:
+                tableName: "rag_document"
+            - columnExists:
+                tableName: "rag_document"
+                columnName: "file_id"
+            - not:
+                - indexExists:
+                    tableName: "rag_document"
+                    indexName: "idx_rag_document_file_id"
+      changes:
+        - createIndex:
+            tableName: "rag_document"
+            indexName: "idx_rag_document_file_id"
+            columns:
+              - column:
+                  name: "file_id"
+  - changeSet:
+      id: "rag-7-add-event-object-key-index"
+      author: "shilaoban"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - and:
+            - tableExists:
+                tableName: "rag_ingestion_event"
+            - columnExists:
+                tableName: "rag_ingestion_event"
+                columnName: "object_key"
+            - not:
+                - indexExists:
+                    tableName: "rag_ingestion_event"
+                    indexName: "idx_rag_ingestion_event_object_key"
+      changes:
+        - createIndex:
+            tableName: "rag_ingestion_event"
+            indexName: "idx_rag_ingestion_event_object_key"
+            columns:
+              - column:
+                  name: "object_key"
+              - column:
+                  name: "created_at"
+  - changeSet:
+      id: "rag-9-add-document-chunk-metadata"
+      author: "shilaoban"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - and:
+            - tableExists:
+                tableName: "rag_document_chunk"
+            - not:
+                - columnExists:
+                    tableName: "rag_document_chunk"
+                    columnName: "metadata"
+      changes:
+        - addColumn:
+            tableName: "rag_document_chunk"
+            columns:
+              - column:
+                  name: "metadata"
+                  type: "JSONB"
+  - changeSet:
+      id: "rag-8-add-document-chat-id"
+      author: "shilaoban"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - and:
+            - tableExists:
+                tableName: "rag_document"
+            - not:
+                - columnExists:
+                    tableName: "rag_document"
+                    columnName: "chat_id"
+      changes:
+        - addColumn:
+            tableName: "rag_document"
+            columns:
+              - column:
+                  name: "chat_id"
+                  type: "BIGINT"
+                  constraints:
+                    nullable: true
+                    foreignKeyName: "fk_rag_document_chat_message"
+                    referencedTableName: "chat_message"
+                    referencedColumnNames: "chat_id"
+                    deleteCascade: true
+        - createIndex:
+            tableName: "rag_document"
+            indexName: "idx_rag_document_chat_id"
+            columns:
+              - column:
+                  name: "chat_id"

@@ -5,6 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.MemoryMXBean;
+import java.lang.management.MemoryUsage;
 import java.lang.management.OperatingSystemMXBean;
 import java.lang.management.ThreadMXBean;
 import java.text.DecimalFormat;
@@ -67,67 +68,92 @@ public class SystemMetricsCollector {
     private void printMemoryInfo() {
         log.info("【内存使用情况】");
 
-        // 堆内存信息
-        var heapMemory = memoryBean.getHeapMemoryUsage();
-        log.info("  堆内存: 初始大小: {} MB,已使用: {} MB,已提交: {} MB,最大值: {} MB, 使用率: {}%", bytesToMB(heapMemory.getInit()), bytesToMB(heapMemory.getUsed()), bytesToMB(heapMemory.getCommitted()), bytesToMB(heapMemory.getMax()), calculatePercentage(heapMemory.getUsed(), heapMemory.getMax()));
+        MemoryUsage heapMemory = memoryBean.getHeapMemoryUsage();
+        log.info("  堆内存: {}", formatMemoryUsage(heapMemory));
 
-        // 非堆内存信息
-        var nonHeapMemory = memoryBean.getNonHeapMemoryUsage();
-        log.info("  非堆内存: 初始大小: {} MB ， 已使用: {} MB， 已提交: {} MB， 最大值: {} MB， 使用率: {}%",
-                bytesToMB(nonHeapMemory.getInit()),
-                bytesToMB(nonHeapMemory.getUsed()),
-                bytesToMB(nonHeapMemory.getCommitted()),
-                bytesToMB(nonHeapMemory.getMax()),
-                calculatePercentage(nonHeapMemory.getUsed(), nonHeapMemory.getMax()));
+        MemoryUsage nonHeapMemory = memoryBean.getNonHeapMemoryUsage();
+        log.info("  非堆内存: {}", formatMemoryUsage(nonHeapMemory));
 
-        // 总内存使用
-        long totalUsed = heapMemory.getUsed() + nonHeapMemory.getUsed();
-        long totalMax = heapMemory.getMax() + nonHeapMemory.getMax();
-        log.info("  总内存使用率: {}%", calculatePercentage(totalUsed, totalMax));
+        long totalUsed = safeAdd(heapMemory.getUsed(), nonHeapMemory.getUsed());
+        long totalMax = safeAdd(heapMemory.getMax(), nonHeapMemory.getMax());
+        log.info("  总内存: 已使用: {} MB, 最大值: {} MB, 使用率: {}%",
+                bytesToMB(totalUsed),
+                bytesToMB(totalMax),
+                calculatePercentage(totalUsed, totalMax));
     }
 
     /**
      * 打印线程信息
      */
     private void printThreadInfo() {
-        log.info("【线程信息】");
-        log.info("  当前线程数: {}", threadBean.getThreadCount());
-        log.info("  峰值线程数: {}", threadBean.getPeakThreadCount());
-        log.info("  守护线程数: {}", threadBean.getDaemonThreadCount());
-        log.info("  总启动线程数: {}", threadBean.getTotalStartedThreadCount());
-
-        // 线程状态分布（简化版本）
-        log.info("  线程状态详情:");
-        log.info("    当前活跃线程数: {}", threadBean.getThreadCount());
-        log.info("    守护线程数: {}", threadBean.getDaemonThreadCount());
-        // 注：标准ThreadMXBean不提供详细的线程状态统计，需要更复杂的实现
+        log.info("【线程信息】：当前线程数: {}, 峰值线程数: {}, 守护线程数: {}, 总启动线程数: {}",
+                threadBean.getThreadCount(),
+                threadBean.getPeakThreadCount(),
+                threadBean.getDaemonThreadCount(),
+                threadBean.getTotalStartedThreadCount());
     }
 
     /**
      * 打印CPU使用信息
      */
     private void printCpuInfo() {
-        log.info("【CPU信息】");
-        log.info("  可用处理器数: {}", osBean.getAvailableProcessors());
-
         try {
-            // 尝试获取更详细的CPU信息（需要特定的MXBean实现）
             if (osBean instanceof com.sun.management.OperatingSystemMXBean sunOsBean) {
-                log.info("  系统CPU负载: {}%", df.format(sunOsBean.getSystemCpuLoad() * 100));
-                log.info("  JVM进程CPU负载: {}%", df.format(sunOsBean.getProcessCpuLoad() * 100));
-                log.info("  JVM CPU时间: {} ms", sunOsBean.getProcessCpuTime() / 1_000_000);
+                log.info("【CPU信息】：可用处理器数: {}, 系统CPU负载: {}%, JVM进程CPU负载: {}%, JVM CPU时间: {} ms",
+                        osBean.getAvailableProcessors(),
+                        formatCpuLoad(sunOsBean.getCpuLoad()),
+                        formatCpuLoad(sunOsBean.getProcessCpuLoad()),
+                        sunOsBean.getProcessCpuTime() / 1_000_000);
             } else {
-                log.info("  CPU负载信息: 无法获取（需要Sun JVM实现）");
+                log.info("【CPU信息】：可用处理器数: {}, CPU负载信息: 无法获取（需要Sun JVM实现）",
+                        osBean.getAvailableProcessors());
             }
         } catch (Exception e) {
-            log.warn("  无法获取CPU详细信息: {}", e.getMessage());
+            log.warn("【CPU信息】：可用处理器数: {}, 无法获取CPU详细信息: {}",
+                    osBean.getAvailableProcessors(),
+                    e.getMessage());
         }
+    }
+
+    /**
+     * 将一段内存使用信息压缩成一行日志，避免启动时日志过于竖向拉长。
+     */
+    private String formatMemoryUsage(MemoryUsage memoryUsage) {
+        return String.format("初始大小: %s MB, 已使用: %s MB, 已提交: %s MB, 最大值: %s MB, 使用率: %s%%",
+                bytesToMB(memoryUsage.getInit()),
+                bytesToMB(memoryUsage.getUsed()),
+                bytesToMB(memoryUsage.getCommitted()),
+                bytesToMB(memoryUsage.getMax()),
+                calculatePercentage(memoryUsage.getUsed(), memoryUsage.getMax()));
+    }
+
+    /**
+     * 统一格式化 CPU 负载；某些 JVM 在取不到值时会返回负数，这里直接显示为 N/A。
+     */
+    private String formatCpuLoad(double load) {
+        if (load < 0) {
+            return "N/A";
+        }
+        return df.format(load * 100);
+    }
+
+    /**
+     * 对可能出现 -1 的 max 值做安全相加；只要任一端不可用，就返回 -1 表示总量未知。
+     */
+    private long safeAdd(long left, long right) {
+        if (left < 0 || right < 0) {
+            return -1;
+        }
+        return left + right;
     }
 
     /**
      * 字节转MB
      */
     private String bytesToMB(long bytes) {
+        if (bytes < 0) {
+            return "N/A";
+        }
         return df.format(bytes / (1024.0 * 1024.0));
     }
 
