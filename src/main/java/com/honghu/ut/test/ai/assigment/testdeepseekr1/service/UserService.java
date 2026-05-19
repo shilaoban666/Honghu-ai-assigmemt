@@ -29,7 +29,7 @@ import java.util.UUID;
 public class UserService {
 
     private final UserRepository userRepository;
-    private final AiModelAccessService aiModelAccessService;
+    private final WorkspaceContextService workspaceContextService;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
 
     /**
@@ -83,9 +83,7 @@ public class UserService {
         }
 
         User savedUser = userRepository.save(user);
-        if (savedUser.getUserRole() != User.UserRole.ADMIN) {
-            aiModelAccessService.grantDefaultLocalModels(savedUser.getUserId());
-        }
+        workspaceContextService.ensurePersonalWorkspace(savedUser);
         log.info("用户创建成功：{}, userId: {}", user.getUsername(), savedUser.getUserId());
         
         return savedUser;

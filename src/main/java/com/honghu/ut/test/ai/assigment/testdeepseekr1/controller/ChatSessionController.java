@@ -1,53 +1,105 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.controller;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.RagAccessDeniedException;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.security.RagAccessGuard;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.ChatSessionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/v1/sessions")
 @RequiredArgsConstructor
-@Tag(name = "会话管理", description = "聊天会话的增删查改")
-@Slf4j
+@Tag(name = "Chat Session Management", description = "Chat session list/detail/rename/delete APIs")
 public class ChatSessionController {
 
+    private static final String USER_ID_HEADER = "X-User-Id";
+
     private final ChatSessionService chatSessionService;
+    private final RagAccessGuard ragAccessGuard;
 
     @GetMapping
-    @Operation(summary = "获取所有会话", description = "获取当前用户的所有聊天会话")
-    public List<ChatSession> getAllSessions(@RequestParam(defaultValue = "default-user") String userId) {
+    @Operation(summary = "List current user's chat sessions")
+    public List<ChatSession> getAllSessions(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String headerUserId,
+            @RequestParam(defaultValue = "default-user") String userId) {
+        requireSameUser(headerUserId, userId);
         return chatSessionService.getAllSessions(userId);
     }
 
     @GetMapping("/user/{userId}")
-    @Operation(summary = "获取指定用户的所有会话", description = "根据用户 ID 获取该用户下的所有聊天会话")
-    public List<ChatSession> getSessionsByUserId(@PathVariable String userId) {
-        log.info("获取用户 {} 的所有会话", userId);
+    @Operation(summary = "List chat sessions by user id")
+    public List<ChatSession> getSessionsByUserId(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String headerUserId,
+            @PathVariable String userId) {
+        requireSameUser(headerUserId, userId);
+        log.info("List chat sessions for userId={}", userId);
         return chatSessionService.getAllSessions(userId);
     }
 
     @GetMapping("/{sessionId}")
-    @Operation(summary = "获取会话详情")
-    public ChatSession getSession(@PathVariable String sessionId) {
+    @Operation(summary = "Get chat session detail")
+    public ChatSession getSession(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String headerUserId,
+            @PathVariable String sessionId) {
+        requireOwnedSession(headerUserId, sessionId);
         return chatSessionService.getSessionById(sessionId);
     }
 
     @DeleteMapping("/{sessionId}")
-    @Operation(summary = "删除会话", description = "物理删除会话及其对应的所有聊天记录")
-    public void deleteSession(@PathVariable String sessionId) {
+    @Operation(summary = "Delete chat session and its messages")
+    public void deleteSession(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String headerUserId,
+            @PathVariable String sessionId) {
+        requireOwnedSession(headerUserId, sessionId);
         chatSessionService.deleteSession(sessionId);
     }
 
     @PutMapping("/{sessionId}/rename")
-    @Operation(summary = "重命名会话")
-    public ChatSession renameSession(@PathVariable String sessionId, @RequestParam String name) {
+    @Operation(summary = "Rename chat session")
+    public ChatSession renameSession(
+            @RequestHeader(value = USER_ID_HEADER, required = false) String headerUserId,
+            @PathVariable String sessionId,
+            @RequestParam String name) {
+        requireOwnedSession(headerUserId, sessionId);
         return chatSessionService.renameSession(sessionId, name);
     }
-}
 
+    private void requireSameUser(String headerUserId, String userId) {
+        try {
+            ragAccessGuard.requireSameUser(headerUserId, userId);
+        } catch (RagAccessDeniedException ex) {
+            throw toHttpAccessError(headerUserId);
+        }
+    }
+
+    private void requireOwnedSession(String headerUserId, String sessionId) {
+        try {
+            ragAccessGuard.requireOwnedSession(headerUserId, sessionId);
+        } catch (RagAccessDeniedException ex) {
+            throw toHttpAccessError(headerUserId);
+        }
+    }
+
+    private static ResponseStatusException toHttpAccessError(String headerUserId) {
+        if (headerUserId == null || headerUserId.isBlank()) {
+            return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Missing " + USER_ID_HEADER + " header");
+        }
+        return new ResponseStatusException(HttpStatus.FORBIDDEN, "Forbidden");
+    }
+}

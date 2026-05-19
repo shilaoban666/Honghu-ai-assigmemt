@@ -21,22 +21,14 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * AI 模型目录与用户权限服务。
+ * AI 模型目录访问兼容门面。
  *
- * <p>该服务负责三类事情：</p>
- * <ol>
- *     <li>读取系统中可用的模型目录</li>
- *     <li>根据用户身份角色计算“理论可用模型范围”</li>
- *     <li>在存在 {@code user_model_permission} 个性化授权时，对角色能力做进一步收口</li>
- * </ol>
+ * <p>这个类过去承担了“按角色硬编码模型权限”的职责。
+ * 现在模型权限已经下沉到 {@link EntitlementService}，这里主要保留旧方法签名，
+ * 让 ChatService、Controller 和旧测试不用一次性大改。</p>
  *
- * <p>当前身份规则：</p>
- * <ul>
- *     <li>GUEST：全部第二梯队模型</li>
- *     <li>USER：全部第二梯队模型</li>
- *     <li>VIP：全部启用模型</li>
- *     <li>ADMIN：全部启用模型</li>
- * </ul>
+ * <p>新代码如果只关心“用户最终能用哪些模型”，优先调用 {@link EntitlementService}；
+ * 如果还需要模型路由、默认模型、provider 兜底等兼容逻辑，可以继续使用这个类。</p>
  */
 @Slf4j
 @Service
@@ -46,60 +38,34 @@ public class AiModelAccessService {
     private final AiModelDefinitionRepository aiModelDefinitionRepository;
     private final UserModelPermissionRepository userModelPermissionRepository;
     private final AiProviderProperties aiProviderProperties;
+    private final EntitlementService entitlementService;
 
-    /** 查询全部已启用模型目录。 */
+    /** 查询全部已启用模型，不做用户权限过滤。主要给后台和内部兜底逻辑使用。 */
     public List<AiModelDefinition> listAllEnabledModels() {
         return aiModelDefinitionRepository.findByEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc();
     }
 
     /**
-     * 查询当前用户可用模型。
+     * 查询用户最终可用模型。
      *
-     * <p>这里不是简单读权限表，而是先算"角色基线能力"，再与个性化授权求交集：</p>
-     * <ul>
-     *     <li>ADMIN 和 VIP 用户：直接返回所有启用的模型，不受权限表限制</li>
-     *     <li>GUEST 用户：返回第二梯队模型，不受权限表限制</li>
-     *     <li>USER 用户：没有个性化授权记录时，直接返回角色基线能力；有个性化授权记录时，返回"角色基线 ∩ 显式授权"</li>
-     * </ul>
+     * <p>方法签名保留在这里，但实际委托给 EntitlementService。
+     * 这样旧调用方不用知道 role、plan、workspace、override 的细节。</p>
      */
     public List<AiModelDefinition> listAccessibleModels(User user) {
-        List<AiModelDefinition> roleBasedModels = listRoleScopedModels(user);
-
-        // ADMIN 和 VIP 用户拥有所有模型的完整权限，不受权限表限制
-        if (user != null && (user.getUserRole() == User.UserRole.ADMIN || user.getUserRole() == User.UserRole.VIP)) {
-            return roleBasedModels;
-        }
-        // USER 用户需要检查权限表
-        List<String> explicitPermissionCodes = userModelPermissionRepository.findByUserIdAndEnabledTrue(user.getUserId())
-                .stream()
-                .map(UserModelPermission::getModelCode)
-                .distinct()
-                .toList();
-        if (explicitPermissionCodes.isEmpty()) {
-            return roleBasedModels;
-        }
-
-        Set<String> permissionSet = new LinkedHashSet<>(explicitPermissionCodes);
-        return roleBasedModels.stream()
-                .filter(model -> permissionSet.contains(model.getModelCode()))
-                .toList();
+        return entitlementService.listAccessibleModels(user);
     }
 
-    /** 按编码查找已启用模型定义。 */
+    /** 按模型编码查启用中的模型；不存在或禁用时抛业务异常。 */
     public AiModelDefinition requireEnabledModel(String modelCode) {
         return aiModelDefinitionRepository.findByModelCodeAndEnabledTrue(modelCode)
                 .orElseThrow(() -> new IllegalArgumentException("模型不存在或未启用: " + modelCode));
     }
 
     /**
-     * 解析一次聊天真正可用的模型。
+     * 解析一次聊天最终要使用的模型。
      *
-     * <p>规则：</p>
-     * <ol>
-     *     <li>如果用户显式传了 model，则必须校验权限；无权限直接报错</li>
-     *     <li>如果是系统自动路由结果，则优先尝试该模型；无权限时回退到默认模型或首个可用模型</li>
-     *     <li>匿名用户只允许使用 localModel=true 的本地模型</li>
-     * </ol>
+     * <p>优先级是：用户显式指定模型 > 自动路由模型 > 配置里的默认模型 > 用户可用模型中的第一个。
+     * 每一步都会检查当前用户是否有权限使用该模型。</p>
      */
     public AiModelDefinition resolveModelForChat(User user, String explicitModelCode, String autoRoutedModelCode) {
         if (StringUtils.hasText(explicitModelCode)) {
@@ -129,14 +95,12 @@ public class AiModelAccessService {
                 .orElseThrow(() -> new IllegalArgumentException("当前用户没有任何可用模型，请先分配模型权限"));
     }
 
-    /** ADMIN 判断。 */
+    /** 判断用户是否是平台后台管理员。 */
     public boolean isAdmin(User user) {
         return user != null && user.getUserRole() == User.UserRole.ADMIN;
     }
 
-    /**
-     * 计算角色中文名称。
-     */
+    /** 把平台角色翻译成适合前端展示的中文身份名称。 */
     public String resolveIdentityLabel(User.UserRole role) {
         if (role == null) {
             return "游客";
@@ -144,13 +108,18 @@ public class AiModelAccessService {
         return switch (role) {
             case GUEST -> "游客";
             case USER -> "普通用户";
+            case PRO -> "PRO 用户";
+            case PLUS -> "PLUS 用户";
+            case PRO_PLUS -> "PRO_PLUS 用户";
             case VIP -> "VIP用户";
             case ADMIN -> "admin用户";
         };
     }
 
     /**
-     * 计算角色权限摘要说明，用于 login 接口直接返回给前端展示。
+     * 生成角色权限摘要文案。
+     *
+     * <p>这个方法主要服务登录接口返回值和后台概览展示，帮助前端直接显示“这个角色大概能做什么”。</p>
      */
     public String resolvePermissionSummary(User.UserRole role) {
         if (role == null) {
@@ -159,20 +128,18 @@ public class AiModelAccessService {
         return switch (role) {
             case GUEST -> "游客只能使用第二梯队普通模型";
             case USER -> "普通用户只能使用第二梯队模型";
+            case PRO -> "PRO 用户拥有更高个人配额和订阅模型权限";
+            case PLUS -> "PLUS 用户拥有增强个人配额和更多订阅模型权限";
+            case PRO_PLUS -> "PRO_PLUS 用户拥有最高个人订阅模型权限";
             case VIP -> "VIP用户可以使用全部梯队模型";
             case ADMIN -> "admin用户可以使用全部梯队模型，并拥有全量管理权限";
         };
     }
 
     /**
-     * 在本地 Ollama 不可用时，解析一个当前用户仍可使用的云端回退模型。
+     * 当本地模型不可用时，从“当前用户仍然有权限使用的云端模型”里选一个回退目标。
      *
-     * <p>优先级：</p>
-     * <ol>
-     *     <li>优先使用配置中指定的首选回退模型（且该模型对当前用户可用）</li>
-     *     <li>否则退化为当前用户可用模型列表中的第一个“非本地模型”</li>
-     *     <li>如果当前用户没有任何远端模型权限，则返回空，由上层决定是否继续尝试本地模型</li>
-     * </ol>
+     * <p>如果 preferredFallbackModelCode 可用，则优先返回它；否则退回到第一个非本地模型。</p>
      */
     public AiModelDefinition resolveFallbackModelWhenLocalUnavailable(User user, String preferredFallbackModelCode) {
         List<AiModelDefinition> accessibleModels = listAccessibleModels(user);
@@ -197,10 +164,13 @@ public class AiModelAccessService {
     }
 
     /**
-     * 为新用户授予默认本地模型权限。
+     * 旧版默认授权本地模型的方法。
      *
-     * <p>这里不是最终能力边界，最终仍会受 {@link #listAccessibleModels(User)} 的角色规则约束。</p>
+     * <p>新版注册流程不再给用户逐条写 user_model_permission，
+     * 而是创建个人 workspace 后通过角色默认模型和套餐权益统一计算可用模型。
+     * 这个方法保留为回滚路径和旧数据修复工具，不建议新流程继续调用。</p>
      */
+    @Deprecated(since = "billing-quota-entitlement")
     @Transactional
     public void grantDefaultLocalModels(String userId) {
         if (!StringUtils.hasText(userId)) {
@@ -224,11 +194,13 @@ public class AiModelAccessService {
                         .userId(userId)
                         .modelCode(model.getModelCode())
                         .enabled(Boolean.TRUE)
+                        .overrideType("GRANT")
                         .build());
                 continue;
             }
             if (!Boolean.TRUE.equals(permission.getEnabled())) {
                 permission.setEnabled(Boolean.TRUE);
+                permission.setOverrideType("GRANT");
                 toSave.add(permission);
             }
         }
@@ -240,10 +212,9 @@ public class AiModelAccessService {
     }
 
     /**
-     * 替换指定用户的模型权限集合。
+     * 用新的目标模型集合替换用户当前的显式授权覆盖。
      *
-     * <p>注意：这里是“显式授权集”，不是越权授权。即使给 USER 授权了第一梯队模型，
-     * 最终也会在角色规则阶段被拦下。</p>
+     * <p>这里操作的是 {@code user_model_permission} 的 GRANT 规则，主要给后台做“批量替换授权模型”。</p>
      */
     @Transactional
     public List<AiModelDefinition> replaceUserPermissions(String userId, List<String> modelCodes) {
@@ -253,7 +224,10 @@ public class AiModelAccessService {
 
         Set<String> targetCodes = modelCodes == null
                 ? Set.of()
-                : modelCodes.stream().filter(StringUtils::hasText).map(String::trim).collect(Collectors.toCollection(LinkedHashSet::new));
+                : modelCodes.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
 
         List<AiModelDefinition> targetModels = targetCodes.isEmpty()
                 ? List.of()
@@ -284,11 +258,13 @@ public class AiModelAccessService {
                         .userId(userId)
                         .modelCode(targetCode)
                         .enabled(Boolean.TRUE)
+                        .overrideType("GRANT")
                         .build());
                 continue;
             }
             if (!Boolean.TRUE.equals(permission.getEnabled())) {
                 permission.setEnabled(Boolean.TRUE);
+                permission.setOverrideType("GRANT");
                 toSave.add(permission);
             }
         }
@@ -299,9 +275,14 @@ public class AiModelAccessService {
         return targetModels;
     }
 
+    /**
+     * 校验用户是否有权使用某个具体模型。
+     *
+     * <p>explicitRequest=true 表示这是用户主动点选的模型；false 表示系统自动路由出来的模型，
+     * 两种情况返回的错误文案会略有区别，方便前端或日志快速判断问题出在哪一层。</p>
+     */
     private AiModelDefinition requireAccessibleModel(User user, String modelCode, boolean explicitRequest) {
         AiModelDefinition model = requireEnabledModel(modelCode);
-
         boolean accessible = listAccessibleModels(user).stream()
                 .anyMatch(item -> item.getModelCode().equals(modelCode));
         if (accessible) {
@@ -312,24 +293,4 @@ public class AiModelAccessService {
                 ? "当前用户无权使用模型: " + modelCode
                 : "自动路由模型当前用户无权使用: " + modelCode);
     }
-
-    /**
-     * 仅按角色规则计算可用模型范围，不考虑个性化授权表。
-     */
-    private List<AiModelDefinition> listRoleScopedModels(User user) {
-        List<AiModelDefinition> allModels = listAllEnabledModels();
-        User.UserRole role = user == null || user.getUserRole() == null ? User.UserRole.GUEST : user.getUserRole();
-
-        return switch (role) {
-            case ADMIN, VIP -> allModels;
-            case USER -> allModels.stream()
-                    .filter(model -> model.getLevel() != null && model.getLevel() >= 2)
-                    .toList();
-            case GUEST -> allModels.stream()
-                    .filter(model -> model.getLevel() != null && model.getLevel() >= 2)
-                    .toList();
-        };
-    }
 }
-
-

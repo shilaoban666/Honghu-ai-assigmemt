@@ -52,6 +52,15 @@ public class ChatResponse {
         @Schema(description = "生成token数")
         private Integer completionTokens;
 
+        /**
+         * 命中 provider prompt cache 的输入 token 数。
+         *
+         * <p>这个字段的意义不是“总 prompt 的重复部分”，而是“本次真正按缓存折扣计费的部分”。
+         * BillingService 会优先拿它去套用 cached input 单价。</p>
+         */
+        @Schema(description = "缓存命中的提示词 token 数")
+        private Integer cachedPromptTokens;
+
         @Schema(description = "总token数")
         private Integer totalTokens;
     }

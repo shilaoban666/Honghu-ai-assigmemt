@@ -91,17 +91,26 @@ databaseChangeLog:
               - column:
                   name: "session_id"
   - include:
+      # 用户与账户基础表。
       file: "DB/changelog/db.changelog-users.yaml"
       relativeToChangelogFile: false
   - include:
+      # AI 任务关键词等业务辅助表。
       file: "DB/changelog/db.changelog-ai-task-keywords.yaml"
       relativeToChangelogFile: false
   - include:
+      # 长时记忆摘要相关表。
       file: "DB/changelog/db.changelog-memory-summary.yaml"
       relativeToChangelogFile: false
   - include:
+      # 模型目录与模型元数据。
       file: "DB/changelog/db.changelog-ai-models.yaml"
       relativeToChangelogFile: false
   - include:
+      # RAG 文档、分块、摄取事件等检索增强能力。
       file: "DB/changelog/db.changelog-rag.yaml"
+      relativeToChangelogFile: false
+  - include:
+      # 计费、角色默认模型、套餐权益、workspace 多租户能力。
+      file: "DB/changelog/db.changelog-billing-roles-tenancy.yaml"
       relativeToChangelogFile: false

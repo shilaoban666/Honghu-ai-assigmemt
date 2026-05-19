@@ -1,6 +1,7 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.exception;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.QuotaCheckResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -9,7 +10,10 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import java.net.ConnectException;
@@ -24,6 +28,68 @@ import java.nio.channels.ClosedChannelException;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * 返回结构化的 429 配额错误。
+     *
+     * <p>这里不复用 ChatResponse，是因为 ChatResponse 更偏向聊天成功/失败语义，
+     * 而配额错误需要额外带上 used/limit/resetAt 这些可视化信息。</p>
+     */
+    @ExceptionHandler(QuotaExceededException.class)
+    public ResponseEntity<Map<String, Object>> handleQuotaExceededException(QuotaExceededException ex) {
+        /*
+         * 配额超限必须返回结构化 429，而不是普通 ChatResponse。
+         * 前端需要 dailyUsed、dailyLimit、monthlyUsed、monthlyLimit 和 resetAt
+         * 来展示“为什么不能继续用、什么时候恢复”。
+         */
+        QuotaCheckResult quota = ex.getQuota();
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("code", quota == null ? "QUOTA_EXCEEDED" : quota.getReason());
+        body.put("message", "AI quota exceeded");
+        body.put("dailyUsed", quota == null ? null : quota.getDailyUsed());
+        body.put("dailyLimit", quota == null ? null : quota.getDailyLimit());
+        body.put("monthlyUsed", quota == null ? null : quota.getMonthlyUsed());
+        body.put("monthlyLimit", quota == null ? null : quota.getMonthlyLimit());
+        body.put("resetAt", quota == null ? null : quota.getResetAt());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(body);
+    }
+
+    /**
+     * 返回“模型未配置价格”的结构化错误。
+     *
+     * <p>选择 503 是为了表达“服务暂时不可正确提供”，并提示这是后台配置问题而不是用户参数问题。</p>
+     */
+    @ExceptionHandler(PricingNotConfiguredException.class)
+    public ResponseEntity<Map<String, Object>> handlePricingNotConfiguredException(PricingNotConfiguredException ex) {
+        /*
+         * 模型没有价格时不继续调用，避免产生无法入账的用量。
+         * 返回 503 是为了提醒管理员去模型价格页补配置，而不是让用户误以为是配额问题。
+         */
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("code", "PRICING_NOT_CONFIGURED");
+        body.put("message", ex.getMessage());
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(body);
+    }
+
+    /**
+     * 处理控制器主动抛出的 HTTP 状态异常。
+     *
+     * <p>后台登录失败、权限不足、资源不存在等业务错误都会走
+     * {@link ResponseStatusException}。如果不单独处理，最后会落到通用 500，
+     * 前端只能看到“系统内部错误”，无法正确跳转登录页或展示 403/404。</p>
+     */
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<Map<String, Object>> handleResponseStatusException(ResponseStatusException ex) {
+        HttpStatus status = HttpStatus.resolve(ex.getStatusCode().value());
+        HttpStatus finalStatus = status == null ? HttpStatus.INTERNAL_SERVER_ERROR : status;
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("code", finalStatus.name());
+        body.put("message", ex.getReason() == null ? finalStatus.getReasonPhrase() : ex.getReason());
+        return ResponseEntity.status(finalStatus).body(body);
+    }
 
     /**
      * 处理参数校验异常
@@ -63,13 +129,18 @@ public class GlobalExceptionHandler {
                 .body(ChatResponse.error("系统内部错误: " + ex.getMessage()));
     }
     /**
-     * 处理login服务异常
+     * 处理登录服务异常。
+     *
+     * <p>登录失败不属于系统 500，因此这里明确返回 401，方便前端直接展示账号/密码错误或重新登录提示。</p>
      */
     @ExceptionHandler(LoginServiceException.class)
-    public ResponseEntity<ChatResponse> handleLoginServiceException(LoginServiceException ex) {
+    public ResponseEntity<Map<String, Object>> handleLoginServiceException(LoginServiceException ex) {
         log.error("login服务异常: {}", ex.getMessage());
-        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(ChatResponse.error("登录失败 : " + ex.getMessage()));
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("success", false);
+        body.put("code", "LOGIN_FAILED");
+        body.put("message", "登录失败: " + ex.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(body);
     }
     /**
      * 处理AI服务异常

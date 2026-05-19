@@ -30,6 +30,16 @@ public class ChatRequest {
     @Schema(description = "用户ID", example = "user-123")
     private String userId ;
 
+    /**
+     * 本次聊天使用的 workspace。
+     *
+     * <p>不传时后端会使用用户默认 workspace。个人 workspace 会按用户角色计算模型和额度；
+     * 企业 workspace 会按 plan 计算团队共享模型和额度。前端也可以通过 X-Workspace-Id 传入，
+     * Header 优先级高于请求体字段。</p>
+     */
+    @Schema(description = "Workspace ID。不传时使用用户默认 workspace；也可由 X-Workspace-Id 请求头覆盖", example = "workspace-123")
+    private String workspaceId;
+
     @Schema(description = "模型名称", example = "deepseek-r1:8b")
     private String model ;
 

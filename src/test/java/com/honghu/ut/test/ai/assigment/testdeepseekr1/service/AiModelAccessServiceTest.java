@@ -14,8 +14,18 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证 AiModelAccessService 在新权益体系下仍保留旧门面行为。
+ *
+ * <p>重点校验两件事：</p>
+ * <ul>
+ *     <li>列出可用模型时，确实委托给新的 EntitlementService，而不是继续走旧硬编码。</li>
+ *     <li>本地模型不可用时，能够从用户有权限的模型集合里选出合适的云端回退模型。</li>
+ * </ul>
+ */
 @ExtendWith(MockitoExtension.class)
 class AiModelAccessServiceTest {
 
@@ -23,20 +33,22 @@ class AiModelAccessServiceTest {
     private AiModelDefinitionRepository aiModelDefinitionRepository;
     @Mock
     private UserModelPermissionRepository userModelPermissionRepository;
+    @Mock
+    private EntitlementService entitlementService;
 
     private AiModelAccessService aiModelAccessService;
 
     private AiModelDefinition localTier2;
     private AiModelDefinition remoteTier2;
     private AiModelDefinition deepseekFallback;
-    private AiModelDefinition remoteTier1;
 
     @BeforeEach
     void setUp() {
         aiModelAccessService = new AiModelAccessService(
                 aiModelDefinitionRepository,
                 userModelPermissionRepository,
-                new AiProviderProperties()
+                new AiProviderProperties(),
+                entitlementService
         );
 
         localTier2 = AiModelDefinition.builder()
@@ -69,58 +81,26 @@ class AiModelAccessServiceTest {
                 .localModel(false)
                 .enabled(true)
                 .build();
-        remoteTier1 = AiModelDefinition.builder()
-                .modelCode("gpt-5.1")
-                .displayName("remote t1")
-                .providerCode("openai")
-                .apiModelName("gpt-5.1")
-                .level(1)
-                .score(80)
-                .localModel(false)
-                .enabled(true)
-                .build();
-
-        when(aiModelDefinitionRepository.findByEnabledTrueOrderByLevelAscScoreDescDisplayNameAsc())
-                .thenReturn(List.of(remoteTier1, deepseekFallback, localTier2, remoteTier2));
     }
 
+    /** 验证旧入口 listAccessibleModels(User) 现在已经委托到新的权益服务。 */
     @Test
-    void guestShouldOnlyAccessTierTwoModels() {
-        List<AiModelDefinition> accessible = aiModelAccessService.listAccessibleModels(
-                User.builder().userRole(User.UserRole.GUEST).build()
-        );
-
-        assertThat(accessible)
-                .extracting(AiModelDefinition::getModelCode)
-                .containsExactly("deepseek-v3.2", "deepseek-r1:8b", "gpt-5-mini");
-    }
-
-    @Test
-    void normalUserShouldOnlyAccessTierTwoModels() {
+    void listAccessibleModelsShouldDelegateToEntitlementService() {
         User user = User.builder().userId("u1").userRole(User.UserRole.USER).build();
-        when(userModelPermissionRepository.findByUserIdAndEnabledTrue("u1")).thenReturn(List.of());
+        when(entitlementService.listAccessibleModels(user)).thenReturn(List.of(deepseekFallback, localTier2));
 
         List<AiModelDefinition> accessible = aiModelAccessService.listAccessibleModels(user);
 
-        assertThat(accessible)
-                .extracting(AiModelDefinition::getModelCode)
-                .containsExactly("deepseek-v3.2", "deepseek-r1:8b", "gpt-5-mini");
+        assertThat(accessible).extracting(AiModelDefinition::getModelCode)
+                .containsExactly("deepseek-v3.2", "deepseek-r1:8b");
+        verify(entitlementService).listAccessibleModels(user);
     }
 
-    @Test
-    void vipShouldStillAccessAllModelsEvenWhenPermissionTableHasSubset() {
-        User user = User.builder().userId("u2").userRole(User.UserRole.VIP).build();
-
-        List<AiModelDefinition> accessible = aiModelAccessService.listAccessibleModels(user);
-
-        assertThat(accessible)
-                .extracting(AiModelDefinition::getModelCode)
-                .containsExactly("gpt-5.1", "deepseek-v3.2", "deepseek-r1:8b", "gpt-5-mini");
-    }
-
+    /** 验证本地模型不可用时，会优先采用显式配置且用户有权限的回退模型。 */
     @Test
     void shouldPreferConfiguredRemoteFallbackWhenLocalUnavailable() {
         User guest = User.builder().userRole(User.UserRole.GUEST).build();
+        when(entitlementService.listAccessibleModels(guest)).thenReturn(List.of(localTier2, deepseekFallback, remoteTier2));
 
         AiModelDefinition fallback = aiModelAccessService.resolveFallbackModelWhenLocalUnavailable(guest, "deepseek-v3.2");
 
