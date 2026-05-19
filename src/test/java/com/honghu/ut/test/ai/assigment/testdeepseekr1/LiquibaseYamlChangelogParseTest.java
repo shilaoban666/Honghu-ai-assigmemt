@@ -13,8 +13,26 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+/**
+ * 验证 Liquibase 已经切换到 YAML-first，但历史 changeSet 身份仍保持兼容。
+ *
+ * <p>这个测试重点不是验证数据库能不能连通，而是验证两件非常关键的迁移约束：</p>
+ * <ol>
+ *     <li>源码目录里已经没有物理 XML changelog 文件。</li>
+ *     <li>YAML 解析后的 changeSet.filePath 仍保持历史 logicalFilePath，不破坏 DATABASECHANGELOG 身份。</li>
+ * </ol>
+ */
 class LiquibaseYamlChangelogParseTest {
 
+    /**
+     * 解析 YAML 主 changelog，并确认历史 XML 逻辑路径仍被保留。
+     *
+     * <p>如果这个测试失败，通常意味着两类风险之一：</p>
+     * <ul>
+     *     <li>有人又把物理 XML 文件放回源码目录，导致 YAML-first 约定被破坏。</li>
+     *     <li>有人误改了 logicalFilePath，使已执行 changeSet 的 filename / checksum 归属发生漂移。</li>
+     * </ul>
+     */
     @Test
     void yamlMasterChangelogCanBeParsedWithoutPhysicalXmlFilesAndStillKeepOriginalLogicalFilePaths() throws Exception {
         try (ClassLoaderResourceAccessor resourceAccessor = new ClassLoaderResourceAccessor()) {
@@ -29,7 +47,7 @@ class LiquibaseYamlChangelogParseTest {
                     .parse("DB/changelog/db.changelog-master.yaml", new ChangeLogParameters(), resourceAccessor);
 
             List<ChangeSet> changeSets = changeLog.getChangeSets();
-            assertThat(changeSets).hasSize(21);
+            assertThat(changeSets).hasSize(32);
             assertThat(changeSets)
                     .extracting(ChangeSet::getId)
                     .containsExactly(
@@ -53,7 +71,18 @@ class LiquibaseYamlChangelogParseTest {
                             "rag-6-add-document-file-id-index",
                             "rag-7-add-event-object-key-index",
                             "rag-9-add-document-chunk-metadata",
-                            "rag-8-add-document-chat-id"
+                            "rag-8-add-document-chat-id",
+                            "billing-roles-tenancy-1",
+                            "billing-roles-tenancy-2",
+                            "billing-roles-tenancy-3",
+                            "billing-roles-tenancy-4",
+                            "billing-roles-tenancy-5",
+                            "billing-roles-tenancy-6",
+                            "billing-roles-tenancy-7",
+                            "billing-roles-tenancy-8",
+                            "billing-roles-tenancy-9",
+                            "billing-roles-tenancy-10",
+                            "billing-roles-tenancy-11"
                     );
             assertThat(changeSets)
                     .extracting(ChangeSet::getFilePath)
@@ -63,7 +92,8 @@ class LiquibaseYamlChangelogParseTest {
                             "DB/changelog/db.changelog-ai-task-keywords.xml",
                             "DB/changelog/db.changelog-memory-summary.xml",
                             "DB/changelog/db.changelog-ai-models.xml",
-                            "DB/changelog/db.changelog-rag.xml"
+                            "DB/changelog/db.changelog-rag.xml",
+                            "DB/changelog/db.changelog-billing-roles-tenancy.yaml"
                     );
 
             ChangeSet ragMetadataChangeSet = changeSets.stream()

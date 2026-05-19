@@ -166,21 +166,35 @@ public class User {
         RESTRICTED
     }
 
-
     /**
-     * 用户角色枚举。
+     * 平台角色说明。
+     *
+     * <p>这里的角色表示平台订阅档位和后台身份，不表示 workspace 内的团队角色。
+     * workspace 内的 OWNER、ADMIN、MEMBER、VIEWER 保存在 workspace_member.member_role。</p>
+     *
+     * <p>个人空间下，模型默认授权和个人额度都由这个角色决定；
+     * 企业 workspace 下，如果 workspace 配了 planCode，则模型和额度优先由套餐决定。</p>
      */
     public enum UserRole {
         @Schema(description = "游客")
-        GUEST,
+        GUEST, // 游客：通常只开放最低试用额度和基础模型，用于未登录或体验态场景。
 
         @Schema(description = "普通用户")
-        USER,
+        USER, // 普通用户：免费档个人用户，个人空间模型和额度按基础角色规则计算。
+
+        @Schema(description = "订阅级 1")
+        PRO, // PRO：个人订阅一级，通常拥有更高个人预算和更多可用模型。
+
+        @Schema(description = "订阅级 2")
+        PLUS, // PLUS：个人订阅二级，预算和模型范围进一步提升。
+
+        @Schema(description = "订阅级 3")
+        PRO_PLUS, // PRO_PLUS：个人订阅里的最高档，个人侧默认权限最宽。
 
         @Schema(description = "VIP 用户")
-        VIP,
+        VIP, // VIP：业务上的高权限用户，可不受个人预算约束，但不等同于后台管理员。
 
         @Schema(description = "管理员")
-        ADMIN
+        ADMIN // ADMIN：后台管理员，除模型使用外，还拥有后台管理与运营配置权限。
     }
 }

@@ -2,9 +2,11 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.controller;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.AiModelResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.LoginRequest;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.QuotaSnapshot;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.UserResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.AiModelAccessService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.QuotaService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 用户管理控制器
@@ -32,6 +35,7 @@ public class UserController {
 
     private final UserService userService;
     private final AiModelAccessService aiModelAccessService;
+    private final QuotaService quotaService;
 
     /**
      * 创建新用户
@@ -54,6 +58,29 @@ public class UserController {
         log.info("收到查询用户请求：{}", userId);
         User user = userService.getUserById(userId);
         return ResponseEntity.ok(user);
+    }
+
+    /**
+     * 查询当前用户的额度快照。
+     *
+     * <p>这个接口给普通前台使用，不要求管理员权限。返回 daily / monthly 两个窗口的额度数据，
+     * 前端可以直接用 {@link QuotaSnapshot#getTokenUsed()}、{@link QuotaSnapshot#getTokenLimit()}
+     * 和 {@link QuotaSnapshot#getTokenRemaining()} 渲染 token 进度条，同时保留金额字段用于对账展示。</p>
+     *
+     * @param userId 用户 ID
+     * @param workspaceId 可选 workspace ID；不传时使用该用户默认 workspace
+     * @return 日额度和月额度快照
+     */
+    @GetMapping("/{userId}/quota")
+    @Operation(summary = "查询用户额度快照", description = "返回用户日/月标准 Token 与金额额度，用于前台用户中心展示")
+    public ResponseEntity<Map<String, QuotaSnapshot>> getUserQuota(
+            @Parameter(description = "用户 ID") @PathVariable String userId,
+            @Parameter(description = "可选 workspace ID，不传则使用用户默认 workspace") @RequestParam(required = false) String workspaceId) {
+        log.info("收到查询用户额度快照请求：userId={}, workspaceId={}", userId, workspaceId);
+        return ResponseEntity.ok(Map.of(
+                "daily", quotaService.getSnapshot(userId, workspaceId, "DAILY"),
+                "monthly", quotaService.getSnapshot(userId, workspaceId, "MONTHLY")
+        ));
     }
 
     /**

@@ -1,8 +1,14 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.AiCallContext;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.CostBreakdown;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.QuotaCheckResult;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiUsageEvent;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.PricingNotConfiguredException;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.QuotaExceededException;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -28,11 +35,27 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AiChatModelGatewayService {
 
+	/**
+	 * 这个网关是所有 AI 聊天调用的统一入口。
+	 *
+	 * <p>它负责的事情不只是“把请求发给模型”，还包括：</p>
+	 * <ul>
+	 * 	<li>根据模型 provider 决定走本地 Ollama 还是 OpenAI-compatible HTTP。</li>
+	 * 	<li>本地 Ollama 不可用时，按配置回退到云端模型。</li>
+	 * 	<li>调用前检查个人或企业 workspace 配额。</li>
+	 * 	<li>调用后根据 token usage 和价格快照计算成本。</li>
+	 * 	<li>无论成功、失败、超限还是缺价格，都尽量写入 ai_usage_event 作为审计流水。</li>
+	 * </ul>
+	 */
+
 	private final ObjectProvider<OllamaChatModel> ollamaChatModelProvider;
 	private final OpenAiCompatibleChatClient openAiCompatibleChatClient;
 	private final AiProviderProperties aiProviderProperties;
 	private final AiModelAccessService aiModelAccessService;
 	private final ConnectionHealthChecker connectionHealthChecker;
+	private final BillingService billingService;
+	private final UsageEventService usageEventService;
+	private final QuotaService quotaService;
 
 	/**
 	 * 执行一次非流式聊天调用。
@@ -40,12 +63,45 @@ public class AiChatModelGatewayService {
 	 * <p>调用方只需要关心“选中了哪个模型”，不需要再区分它是本地 Ollama 还是外部 provider。</p>
 	 */
 	public ChatResponse chat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens) {
+		return chat(model, messages, temperature, maxTokens, AiCallContext.anonymous("legacy-chat"));
+	}
+
+	/**
+	 * 执行一次带上下文的非流式聊天调用。
+	 *
+	 * <p>执行顺序是：准备上下文 -> 解析实际执行模型 -> 检查配额 -> 调上游 ->
+	 * 算费用 -> 落成功流水。异常路径也会落失败流水。</p>
+	 *
+	 * @param model 用户请求或路由选中的模型
+	 * @param messages Spring AI 消息列表
+	 * @param temperature 温度参数，可为空
+	 * @param maxTokens 最大输出 token，可为空
+	 * @param context 用户、workspace、session、requestId 等调用上下文
+	 * @return 完整的非流式 AI 回复
+	 */
+	public ChatResponse chat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, AiCallContext context) {
+		AiCallContext safeContext = prepareContext(context, "chat");
+		long startNs = System.nanoTime();
 		AiModelDefinition executableModel = resolveExecutableModel(model);
 		AiProviderProperties.Provider provider = resolveProvider(executableModel.getProviderCode());
-		return switch (provider.getType()) {
-			case OLLAMA_LOCAL -> chatWithLocalFallback(executableModel, messages, temperature, maxTokens);
-			case OPENAI_COMPATIBLE -> openAiCompatibleChatClient.chat(executableModel, provider, messages, temperature, maxTokens);
-		};
+		try {
+			checkQuota(safeContext, model, executableModel, startNs);
+			ChatResponse response = switch (provider.getType()) {
+				case OLLAMA_LOCAL -> chatWithLocalFallback(executableModel, messages, temperature, maxTokens);
+				case OPENAI_COMPATIBLE -> openAiCompatibleChatClient.chat(executableModel, provider, messages, temperature, maxTokens);
+			};
+			CostBreakdown cost = billingService.calculate(response.getModel(), response.getTokenUsage(), Instant.now());
+			usageEventService.recordSuccess(safeContext, model, executableModel, response.getTokenUsage(), cost, elapsedMs(startNs));
+			return response;
+		} catch (QuotaExceededException ex) {
+			throw ex;
+		} catch (PricingNotConfiguredException ex) {
+			usageEventService.recordFailure(safeContext, model, executableModel, elapsedMs(startNs), AiUsageEvent.Status.BLOCKED_BY_PRICING, ex.getMessage());
+			throw ex;
+		} catch (RuntimeException ex) {
+			usageEventService.recordFailure(safeContext, model, executableModel, elapsedMs(startNs), AiUsageEvent.Status.FAILED, ex.getMessage());
+			throw ex;
+		}
 	}
 
 	/**
@@ -54,12 +110,53 @@ public class AiChatModelGatewayService {
 	 * <p>返回统一的 {@link ChatResponse} 分片流，方便上层直接复用既有 SSE 输出逻辑。</p>
 	 */
 	public Flux<ChatResponse> streamChat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens) {
+		return streamChat(model, messages, temperature, maxTokens, AiCallContext.anonymous("legacy-stream"));
+	}
+
+	/**
+	 * 执行一次带上下文的流式聊天调用。
+	 *
+	 * <p>流式调用的 token usage 通常在最后一帧才返回，所以这里会持续收集分片内容和最后一次 usage。
+	 * 流结束时统一计费并落 SUCCESS 流水；如果 provider 没有返回 usage，则用字符数估算一个兜底 usage，
+	 * 避免流式调用在成本系统里变成黑洞。</p>
+	 */
+	public Flux<ChatResponse> streamChat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, AiCallContext context) {
+		AiCallContext safeContext = prepareContext(context, "stream");
+		long startNs = System.nanoTime();
 		AiModelDefinition executableModel = resolveExecutableModel(model);
 		AiProviderProperties.Provider provider = resolveProvider(executableModel.getProviderCode());
-		return switch (provider.getType()) {
+		checkQuota(safeContext, model, executableModel, startNs);
+		StringBuilder content = new StringBuilder();
+		ChatResponse.TokenUsage[] lastUsage = new ChatResponse.TokenUsage[1];
+		Flux<ChatResponse> upstream = switch (provider.getType()) {
 			case OLLAMA_LOCAL -> streamWithLocalFallback(executableModel, messages, temperature, maxTokens);
 			case OPENAI_COMPATIBLE -> openAiCompatibleChatClient.streamChat(executableModel, provider, messages, temperature, maxTokens);
 		};
+		return upstream
+				.doOnNext(response -> {
+					if (response.getContent() != null) {
+						content.append(response.getContent());
+					}
+					if (response.getTokenUsage() != null) {
+						lastUsage[0] = response.getTokenUsage();
+					}
+				})
+				.doOnComplete(() -> {
+					try {
+						ChatResponse.TokenUsage usage = lastUsage[0] != null ? lastUsage[0] : estimateUsage(messages, content.toString());
+						CostBreakdown cost = billingService.calculate(executableModel.getModelCode(), usage, Instant.now());
+						usageEventService.recordSuccess(safeContext, model, executableModel, usage, cost, elapsedMs(startNs));
+					} catch (PricingNotConfiguredException ex) {
+						usageEventService.recordFailure(safeContext, model, executableModel, elapsedMs(startNs), AiUsageEvent.Status.BLOCKED_BY_PRICING, ex.getMessage());
+					}
+				})
+				.doOnError(error -> usageEventService.recordFailure(
+						safeContext,
+						model,
+						executableModel,
+						elapsedMs(startNs),
+						error instanceof QuotaExceededException ? AiUsageEvent.Status.BLOCKED_BY_QUOTA : AiUsageEvent.Status.FAILED,
+						error.getMessage()));
 	}
 
 	/**
@@ -118,6 +215,7 @@ public class AiChatModelGatewayService {
 				.tokenUsage(ChatResponse.TokenUsage.builder()
 						.promptTokens(response.getMetadata().getUsage().getPromptTokens().intValue())
 						.completionTokens(response.getMetadata().getUsage().getGenerationTokens().intValue())
+						.cachedPromptTokens(0)
 						.totalTokens(response.getMetadata().getUsage().getTotalTokens().intValue())
 						.build())
 				.build();
@@ -142,7 +240,74 @@ public class AiChatModelGatewayService {
 						.model(model.getModelCode())
 						.timestamp(System.currentTimeMillis())
 						.success(true)
+						.tokenUsage(response.getMetadata() == null || response.getMetadata().getUsage() == null
+								? null
+						: ChatResponse.TokenUsage.builder()
+								.promptTokens(response.getMetadata().getUsage().getPromptTokens().intValue())
+								.completionTokens(response.getMetadata().getUsage().getGenerationTokens().intValue())
+								.cachedPromptTokens(0)
+								.totalTokens(response.getMetadata().getUsage().getTotalTokens().intValue())
+								.build())
 						.build());
+	}
+
+	/**
+	 * 整理调用上下文，确保 requestId、attemptNo 和 source 可用。
+	 *
+	 * <p>requestId 是 usage event 的追踪主键之一，不能等到出错时才生成。</p>
+	 */
+	private AiCallContext prepareContext(AiCallContext context, String source) {
+		AiCallContext safeContext = context == null ? AiCallContext.anonymous(source) : context;
+		safeContext.ensureRequestId();
+		if (safeContext.getSource() == null) {
+			safeContext.setSource(source);
+		}
+		return safeContext;
+	}
+
+	/**
+	 * 调用上游模型之前检查配额。
+	 *
+	 * <p>配额不通过时，会先写一条 BLOCKED_BY_QUOTA 流水，再抛出 {@link QuotaExceededException}。
+	 * 这样前端能收到 429，后台也能看到拦截记录。</p>
+	 */
+	private void checkQuota(AiCallContext context, AiModelDefinition requestedModel, AiModelDefinition executableModel, long startNs) {
+		QuotaCheckResult quota = quotaService.checkBeforeCall(context.getUserId(), context.getWorkspaceId());
+		if (!quota.isAllowed()) {
+			usageEventService.recordFailure(context, requestedModel, executableModel, elapsedMs(startNs), AiUsageEvent.Status.BLOCKED_BY_QUOTA, quota.getReason());
+			throw new QuotaExceededException(quota);
+		}
+	}
+
+	/**
+	 * provider 没返回 usage 时的兜底估算。
+	 *
+	 * <p>这不是精确 tokenizer，只是为了避免流式响应完全没有 token 数据。
+	 * 后续如果接入 provider 官方 tokenizer，可以替换这里。</p>
+	 */
+	private ChatResponse.TokenUsage estimateUsage(List<Message> messages, String completion) {
+		int promptChars = messages == null ? 0 : messages.stream()
+				.filter(message -> message != null && message.getContent() != null)
+				.mapToInt(message -> message.getContent().length())
+				.sum();
+		int completionChars = completion == null ? 0 : completion.length();
+		int promptTokens = Math.max(1, promptChars / 2);
+		int completionTokens = Math.max(1, completionChars / 2);
+		return ChatResponse.TokenUsage.builder()
+				.promptTokens(promptTokens)
+				.completionTokens(completionTokens)
+				.cachedPromptTokens(0)
+				.totalTokens(promptTokens + completionTokens)
+				.build();
+	}
+
+	/**
+	 * 计算一次调用已经耗费的毫秒数。
+	 *
+	 * <p>统一在这里做纳秒到毫秒的换算，避免成功和失败分支各自重复写一套时间计算。</p>
+	 */
+	private long elapsedMs(long startNs) {
+		return (System.nanoTime() - startNs) / 1_000_000L;
 	}
 
 	/**
@@ -188,6 +353,11 @@ public class AiChatModelGatewayService {
 		return fallbackModel;
 	}
 
+	/**
+	 * 当“预判健康检查没发现问题，但真正调用仍然失败”时，尝试切云端回退模型。
+	 *
+	 * <p>这一步只在明确识别为本地连接异常时才触发，避免把模型业务异常误判成“应该回退”。</p>
+	 */
 	private AiModelDefinition resolveFallbackModelAfterLocalFailure(AiModelDefinition requestedModel, Throwable throwable) {
 		if (!isLocalConnectionFailure(throwable)) {
 			return null;
@@ -202,6 +372,17 @@ public class AiChatModelGatewayService {
 		return fallbackModel;
 	}
 
+	/**
+	 * 从配置中解析真正可用的云端回退模型。
+	 *
+	 * <p>这里会顺手过滤几类无效配置：</p>
+	 * <ul>
+	 * 	<li>没开回退功能</li>
+	 * 	<li>没配 fallbackModel</li>
+	 * 	<li>fallback 模型不存在或被禁用</li>
+	 * 	<li>fallback 仍然指向本地 provider，导致“回退后还是本地”</li>
+	 * </ul>
+	 */
 	private AiModelDefinition resolveConfiguredFallbackModel(AiModelDefinition requestedModel) {
 		AiProviderProperties.LocalModelFallback fallbackConfig = aiProviderProperties.getLocalModelFallback();
 		if (fallbackConfig == null || !fallbackConfig.isEnabled() || !StringUtils.hasText(fallbackConfig.getFallbackModel())) {
@@ -226,6 +407,11 @@ public class AiChatModelGatewayService {
 		return fallbackModel;
 	}
 
+	/**
+	 * 获取已初始化的 OllamaChatModel Bean。
+	 *
+	 * <p>如果当前应用根本没有启用本地 Ollama，这里会直接抛出清晰错误，提醒去检查配置。</p>
+	 */
 	private OllamaChatModel requireOllamaChatModel() {
 		OllamaChatModel ollamaChatModel = ollamaChatModelProvider.getIfAvailable();
 		if (ollamaChatModel == null) {
@@ -234,6 +420,11 @@ public class AiChatModelGatewayService {
 		return ollamaChatModel;
 	}
 
+	/**
+	 * 判断异常链是否属于“本地连接失败”。
+	 *
+	 * <p>这里既看异常类型，也看 message 关键字，是因为不同 HTTP 客户端/底层实现抛出来的异常包装层次不一致。</p>
+	 */
 	private boolean isLocalConnectionFailure(Throwable throwable) {
 		Throwable current = throwable;
 		while (current != null) {

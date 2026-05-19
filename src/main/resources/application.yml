@@ -245,7 +245,11 @@ app:
       deepseek-cloud:
         type: OPENAI_COMPATIBLE
         enabled: true
-        # DeepSeek 官方平台：把申请到的 API Key 配到 DEEPSEEK_CLOUD_API_KEY 即可。
+        # DeepSeek 官方平台配置。
+        # 这里故意只保留环境变量占位，不把真实密钥写进仓库：
+        # 1. 避免误提交后触发 GitHub push protection / secret scanning；
+        # 2. 避免本地、测试、生产环境共用同一把密钥；
+        # 3. 便于通过系统环境变量或启动脚本按环境注入不同凭证。
         base-url: ${DEEPSEEK_CLOUD_BASE_URL:https://api.deepseek.com}
         chat-completions-path: ${DEEPSEEK_CLOUD_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
         use-api-key: true

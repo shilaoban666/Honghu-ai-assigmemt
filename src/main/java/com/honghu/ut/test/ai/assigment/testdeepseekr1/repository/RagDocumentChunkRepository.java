@@ -11,6 +11,12 @@ import java.util.List;
 public interface RagDocumentChunkRepository extends JpaRepository<RagDocumentChunk, Long> {
     void deleteByDocument_DocumentId(Long documentId);
 
+    @Query(value = "select count(*) from rag_document_chunk", nativeQuery = true)
+    long countAllChunks();
+
+    @Query(value = "select coalesce(sum(token_estimate), 0) from rag_document_chunk", nativeQuery = true)
+    Long sumTokenEstimate();
+
     @Query("select c from RagDocumentChunk c join c.document d where d.sessionId = :sessionId and d.status = :status order by d.updatedAt desc, c.chunkIndex asc")
     List<RagDocumentChunk> findCandidateChunksBySessionId(@Param("sessionId") String sessionId,
                                                           @Param("status") RagDocument.Status status,

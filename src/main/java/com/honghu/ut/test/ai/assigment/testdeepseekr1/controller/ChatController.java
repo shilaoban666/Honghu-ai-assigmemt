@@ -51,6 +51,13 @@ public class ChatController {
      * 请求头中用户 ID 的键名
      */
     private static final String USER_ID_HEADER = "X-User-Id";
+    /**
+     * 企业/团队空间上下文请求头。
+     *
+     * <p>不传时后端使用用户默认 workspace；传了则后续服务会校验用户是否是该 workspace 成员。
+     * Header 优先于请求体里的 workspaceId，方便前端在统一请求拦截器里切换团队空间。</p>
+     */
+    private static final String WORKSPACE_ID_HEADER = "X-Workspace-Id";
 
     private final ChatService chatService;
     private final ChatMessageRepository chatMessageRepository;
@@ -59,20 +66,33 @@ public class ChatController {
     private final RagDocumentProcessService ragDocumentProcessService;
 
     /**
-     * 从请求头提取 userId 并设置到请求对象中
-     * <p>
-     * 优先级：请求头 X-User-Id > 请求体 userId 字段
-     * </p>
+     * 把请求头里的用户和 workspace 上下文绑定到 ChatRequest。
      *
-     * @param request 聊天请求对象
-     * @param headerUserId 请求头中的用户 ID
+     * <p>用户 ID 和 workspace ID 都允许放在请求体里，但推荐前端使用 Header。
+     * Header 方式更适合统一封装鉴权和团队空间切换，也能避免业务表单误改上下文。</p>
+     *
+     * <p>这里故意只做“绑定”，不做成员权限校验：
+     * 真正的 workspace 成员校验由后续 Service 层统一完成，
+     * 这样 Controller 只负责把 HTTP 层输入整理成业务请求对象，职责更单一。</p>
      */
-    private void bindUserIdToRequest(ChatRequest request, String headerUserId) {
+    private void bindUserContextToRequest(ChatRequest request, String headerUserId, String headerWorkspaceId) {
+        // 请求头里的用户身份优先级最高：
+        // 这样前端可以把登录态统一放在拦截器里，避免每个请求体都重复传 userId。
         if (headerUserId != null && !headerUserId.isEmpty()) {
             request.setUserId(headerUserId);
             log.info("从请求头获取用户 ID: {}", headerUserId);
         } else {
             log.info("使用请求体中的用户 ID: {}", request.getUserId());
+        }
+
+        // workspace 也遵循同样的优先级规则：
+        // 请求头里一旦显式传了团队空间，就覆盖请求体里的 workspaceId，
+        // 方便前端在顶部切换团队空间时无需改每个业务表单。
+        if (headerWorkspaceId != null && !headerWorkspaceId.isBlank()) {
+            request.setWorkspaceId(headerWorkspaceId);
+            log.info("从请求头获取 workspace ID: {}", headerWorkspaceId);
+        } else {
+            log.info("使用请求体中的 workspace ID: {}", request.getWorkspaceId());
         }
     }
 
@@ -108,9 +128,10 @@ public class ChatController {
                     schema = @Schema(implementation = ChatResponse.class)))
     public ResponseEntity<ChatResponse> structuredChat(
             @Parameter(description = "聊天请求") @Valid @RequestBody ChatRequest request,
-            @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = WORKSPACE_ID_HEADER, required = false) String workspaceId) {
         
-        bindUserIdToRequest(request, userId);
+        bindUserContextToRequest(request, userId, workspaceId);
         log.info("收到结构化聊天请求：{}", request);
         ChatResponse response = chatService.structuredChat(request);
         return ResponseEntity.ok(response);
@@ -145,9 +166,10 @@ public class ChatController {
                     schema = @Schema(implementation = ChatResponse.class)))
     public Flux<ChatResponse> structuredStreamChat(
             @Parameter(description = "聊天请求") @Valid @RequestBody ChatRequest request,
-            @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = WORKSPACE_ID_HEADER, required = false) String workspaceId) {
         
-        bindUserIdToRequest(request, userId);
+        bindUserContextToRequest(request, userId, workspaceId);
         log.info("收到结构化聊天请求：{}", request);
         return chatService.structuredStreamChat(request);
     }
@@ -163,9 +185,10 @@ public class ChatController {
     @Operation(summary = "持久化结构化流式聊天", description = "带会话记忆和数据库存储的流式对话")
     public Flux<ChatResponse> structuredStreamChatPersistent(
             @Valid @RequestBody ChatRequest request,
-            @RequestHeader(value = USER_ID_HEADER, required = false) String userId) {
+            @RequestHeader(value = USER_ID_HEADER, required = false) String userId,
+            @RequestHeader(value = WORKSPACE_ID_HEADER, required = false) String workspaceId) {
         
-        bindUserIdToRequest(request, userId);
+        bindUserContextToRequest(request, userId, workspaceId);
         log.info("收到持久化结构化流式聊天请求：{}", request);
         return chatService.structuredStreamChatWithPersistence(request);
     }
@@ -184,7 +207,7 @@ public class ChatController {
         try {
             ragAccessGuard.requireOwnedSession(userId, sessionId);
         } catch (RagAccessDeniedException ex) {
-            throw toHttpAccessError(userId, ex);
+            throw toHttpAccessError(userId);
         }
 
         List<ChatMessage> messages = chatMessageRepository.findBySessionIdOrderByCreatedAtAsc(sessionId);
@@ -239,7 +262,7 @@ public class ChatController {
         }
     }
 
-    private static ResponseStatusException toHttpAccessError(String headerUserId, RagAccessDeniedException ex) {
+    private static ResponseStatusException toHttpAccessError(String headerUserId) {
         if (headerUserId == null || headerUserId.isBlank()) {
             return new ResponseStatusException(HttpStatus.UNAUTHORIZED, "缺少 " + USER_ID_HEADER + " 请求头");
         }

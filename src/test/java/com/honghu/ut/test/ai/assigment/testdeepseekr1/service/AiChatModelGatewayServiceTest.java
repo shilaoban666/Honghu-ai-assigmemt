@@ -2,6 +2,8 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.CostBreakdown;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.QuotaCheckResult;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +18,9 @@ import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.net.ConnectException;
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 
@@ -25,6 +30,15 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * 验证 AI 网关在“本地 Ollama 不可用”时的回退策略。
+ *
+ * <p>这组测试不关心真实网络通信，而是聚焦于两条关键业务规则：</p>
+ * <ul>
+ *     <li>如果健康检查阶段已经知道本地模型不可用，应直接切到云端回退模型。</li>
+ *     <li>如果健康检查通过，但实际调用时发生连接异常，也应自动切到回退模型。</li>
+ * </ul>
+ */
 @ExtendWith(MockitoExtension.class)
 class AiChatModelGatewayServiceTest {
 
@@ -38,6 +52,12 @@ class AiChatModelGatewayServiceTest {
     private AiModelAccessService aiModelAccessService;
     @Mock
     private ConnectionHealthChecker connectionHealthChecker;
+    @Mock
+    private BillingService billingService;
+    @Mock
+    private UsageEventService usageEventService;
+    @Mock
+    private QuotaService quotaService;
 
     private AiChatModelGatewayService gatewayService;
     private AiProviderProperties aiProviderProperties;
@@ -72,7 +92,10 @@ class AiChatModelGatewayServiceTest {
                 openAiCompatibleChatClient,
                 aiProviderProperties,
                 aiModelAccessService,
-                connectionHealthChecker
+                connectionHealthChecker,
+                billingService,
+                usageEventService,
+                quotaService
         );
 
         localModel = AiModelDefinition.builder()
@@ -90,8 +113,19 @@ class AiChatModelGatewayServiceTest {
                 .enabled(true)
                 .build();
         messages = List.of(new UserMessage("你好"));
+        when(quotaService.checkBeforeCall(any(), any()))
+                .thenReturn(QuotaCheckResult.allowed(BigDecimal.ZERO, null, BigDecimal.ZERO, null, LocalDateTime.now().plusDays(1)));
+        when(billingService.calculate(any(), any(), any(Instant.class)))
+                .thenReturn(CostBreakdown.builder()
+                        .vendorCost(BigDecimal.ZERO)
+                        .billedCost(BigDecimal.ZERO)
+                        .currency("CNY")
+                        .build());
     }
 
+    /**
+     * 模拟“调用前健康检查就发现 Ollama 掉线”，应直接走云端回退模型。
+     */
     @Test
     void shouldUseDeepseekFallbackBeforeCallingLocalModelWhenOllamaUnavailable() {
         when(connectionHealthChecker.isOllamaAvailable()).thenReturn(false);
@@ -105,6 +139,9 @@ class AiChatModelGatewayServiceTest {
         verify(openAiCompatibleChatClient).chat(eq(fallbackModel), any(), eq(messages), eq(null), eq(null));
     }
 
+    /**
+     * 模拟“健康检查正常，但真正调用时连接被拒绝”，仍应自动回退到云端模型。
+     */
     @Test
     void shouldFallbackToDeepseekWhenLocalInvocationFailsAtRuntime() {
         when(connectionHealthChecker.isOllamaAvailable()).thenReturn(true);
