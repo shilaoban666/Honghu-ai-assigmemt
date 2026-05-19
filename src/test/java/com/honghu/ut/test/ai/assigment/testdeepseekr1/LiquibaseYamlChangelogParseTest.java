@@ -47,13 +47,14 @@ class LiquibaseYamlChangelogParseTest {
                     .parse("DB/changelog/db.changelog-master.yaml", new ChangeLogParameters(), resourceAccessor);
 
             List<ChangeSet> changeSets = changeLog.getChangeSets();
-            assertThat(changeSets).hasSize(32);
+            assertThat(changeSets).hasSize(33);
             assertThat(changeSets)
                     .extracting(ChangeSet::getId)
                     .containsExactly(
                             "1",
                             "2",
                             "3",
+                            "3-20260519-user-avatar",
                             "4",
                             "5",
                             "6",

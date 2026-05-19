@@ -406,6 +406,7 @@ app:
     s3:
       enabled: ${AWS_S3_ENABLED:true}
       uploaded-bucket: ${AWS_S3_BUCKET:honghu-ai-document-upload}
+      avatar-bucket: ${AWS_S3_AVATAR_BUCKET:honghu-ai-avatar}
       presigned-url-expiration-minutes: ${AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES:30}
 
     # ---- SQS 消息队列 ----

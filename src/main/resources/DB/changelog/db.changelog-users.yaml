@@ -86,3 +86,18 @@ databaseChangeLog:
             columns:
               - column:
                   name: "user_status"
+
+  - changeSet:
+      id: "3-20260519-user-avatar"
+      author: "codex"
+      comment: "为用户表增加头像 S3 元数据"
+      changes:
+        - addColumn:
+            tableName: "users"
+            columns:
+              - column:
+                  name: "avatar_object_key"
+                  type: "VARCHAR(512)"
+              - column:
+                  name: "avatar_content_type"
+                  type: "VARCHAR(100)"

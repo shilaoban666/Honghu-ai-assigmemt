@@ -110,6 +110,20 @@ public class User {
     private String homeAddress;
 
     /**
+     * 用户头像在 S3 中的对象 key。
+     */
+    @Column(name = "avatar_object_key", length = 512)
+    @Schema(description = "头像 S3 对象 Key", accessMode = Schema.AccessMode.READ_ONLY)
+    private String avatarObjectKey;
+
+    /**
+     * 用户头像 MIME 类型。
+     */
+    @Column(name = "avatar_content_type", length = 100)
+    @Schema(description = "头像 MIME 类型", example = "image/png", accessMode = Schema.AccessMode.READ_ONLY)
+    private String avatarContentType;
+
+    /**
      * 创建时间
      */
     @CreationTimestamp

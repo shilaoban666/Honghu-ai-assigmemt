@@ -71,6 +71,12 @@ public class UserResponse {
     @Schema(description = "家庭地址", example = "北京市朝阳区 XX 街道 XX 号")
     private String homeAddress;
 
+    @Schema(description = "用户头像访问 URL（预签名短期链接或公开链接）")
+    private String avatar;
+
+    @Schema(description = "头像 S3 对象 Key")
+    private String avatarObjectKey;
+
     @Schema(description = "创建时间", example = "2026-03-15T10:00:00")
     private LocalDateTime createdAt;
 
@@ -94,6 +100,7 @@ public class UserResponse {
                 .userStatus(user.getUserStatus())
                 .userRole(user.getUserRole())
                 .homeAddress(user.getHomeAddress())
+                .avatarObjectKey(user.getAvatarObjectKey())
                 .createdAt(user.getCreatedAt())
                 .updatedAt(user.getUpdatedAt())
                 .build();
