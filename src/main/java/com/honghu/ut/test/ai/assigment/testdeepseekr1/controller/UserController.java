@@ -3,10 +3,12 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.controller;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.AiModelResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.LoginRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.QuotaSnapshot;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.UserAvatarResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.UserResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.AiModelAccessService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.QuotaService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.UserAvatarService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,6 +18,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.Map;
@@ -36,6 +39,7 @@ public class UserController {
     private final UserService userService;
     private final AiModelAccessService aiModelAccessService;
     private final QuotaService quotaService;
+    private final UserAvatarService userAvatarService;
 
     /**
      * 创建新用户
@@ -53,11 +57,20 @@ public class UserController {
      */
     @GetMapping("/{userId}")
     @Operation(summary = "查询用户", description= "根据用户 ID 查询用户详情")
-    public ResponseEntity<User> getUser(
+    public ResponseEntity<UserResponse> getUser(
             @Parameter(description = "用户 ID") @PathVariable String userId) {
         log.info("收到查询用户请求：{}", userId);
         User user = userService.getUserById(userId);
-        return ResponseEntity.ok(user);
+        return ResponseEntity.ok(withAvatar(UserResponse.fromUser(user), user));
+    }
+
+    @PostMapping("/{userId}/avatar")
+    @Operation(summary = "上传用户头像", description = "上传裁切后的头像图片到 S3，并更新用户头像元数据")
+    public ResponseEntity<UserAvatarResponse> uploadAvatar(
+            @Parameter(description = "用户 ID") @PathVariable String userId,
+            @RequestParam("file") MultipartFile file) {
+        log.info("收到上传用户头像请求：userId={}, fileName={}, size={}", userId, file.getOriginalFilename(), file.getSize());
+        return ResponseEntity.ok(userAvatarService.uploadAvatar(userId, file));
     }
 
     /**
@@ -188,8 +201,14 @@ public class UserController {
                         .map(AiModelResponse::fromEntity)
                         .toList()
         );
+        response = withAvatar(response, user);
 
         log.info("身份 {} 登录成功，可用模型数={}", user.getUserRole(), response.getAvailableModels().size());
         return ResponseEntity.ok(response);
+    }
+
+    private UserResponse withAvatar(UserResponse response, User user) {
+        response.setAvatar(userAvatarService.resolveAvatarUrl(user));
+        return response;
     }
 }
