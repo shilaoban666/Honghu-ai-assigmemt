@@ -2,6 +2,7 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
@@ -66,6 +67,11 @@ public class OpenAiCompatibleChatClient {
                 OpenAiChatResponse chatResponse = readBody(response.body(), OpenAiChatResponse.class);
                 String content = extractFullContent(chatResponse);
                 Usage usage = chatResponse != null ? chatResponse.getUsage() : null;
+                /*
+                 * OpenAI-compatible 协议通常会在 usage.prompt_tokens_details.cached_tokens
+                 * 里返回缓存命中的输入 token。这里统一映射到 ChatResponse.TokenUsage，
+                 * 后续 BillingService 才能按 cached input 单价计算折扣。
+                 */
                 return ChatResponse.builder()
                         .content(content)
                         .model(model.getModelCode())
@@ -74,6 +80,7 @@ public class OpenAiCompatibleChatClient {
                         .tokenUsage(usage == null ? null : ChatResponse.TokenUsage.builder()
                                 .promptTokens(usage.getPromptTokens())
                                 .completionTokens(usage.getCompletionTokens())
+                                .cachedPromptTokens(usage.getCachedPromptTokens())
                                 .totalTokens(usage.getTotalTokens())
                                 .build())
                         .build();
@@ -135,6 +142,24 @@ public class OpenAiCompatibleChatClient {
                     }
 
                     OpenAiChatChunk chunk = objectMapper.readValue(data, OpenAiChatChunk.class);
+                    if (chunk.getUsage() != null) {
+                        /*
+                         * 开启 stream_options.include_usage 后，部分 provider 会在流式最后一帧返回 usage。
+                         * 这一帧可能没有 content，但必须继续向下游发出，网关会用它做最终计费。
+                         */
+                        Usage usage = chunk.getUsage();
+                        sink.next(ChatResponse.builder()
+                                .model(model.getModelCode())
+                                .timestamp(System.currentTimeMillis())
+                                .success(true)
+                                .tokenUsage(ChatResponse.TokenUsage.builder()
+                                        .promptTokens(usage.getPromptTokens())
+                                        .completionTokens(usage.getCompletionTokens())
+                                        .cachedPromptTokens(usage.getCachedPromptTokens())
+                                        .totalTokens(usage.getTotalTokens())
+                                        .build())
+                                .build());
+                    }
                     String deltaContent = extractDeltaContent(chunk);
                     if (StringUtils.hasText(deltaContent)) {
                         sink.next(ChatResponse.builder()
@@ -173,6 +198,7 @@ public class OpenAiCompatibleChatClient {
                 .temperature(temperature)
                 .maxTokens(maxTokens)
                 .stream(stream)
+                .streamOptions(stream ? StreamOptions.includeUsage() : null)
                 .build();
 
         RequestBody requestBody = RequestBody.create(objectMapper.writeValueAsString(payload), JSON_MEDIA_TYPE);
@@ -313,6 +339,29 @@ public class OpenAiCompatibleChatClient {
         @com.fasterxml.jackson.annotation.JsonProperty("max_tokens")
         private Integer maxTokens;
         private Boolean stream;
+        @JsonProperty("stream_options")
+        private StreamOptions streamOptions;
+    }
+
+    /**
+     * OpenAI-compatible 流式选项。
+     *
+     * <p>当前只打开 {@code include_usage}，目的是让部分 provider 在最后一帧补回 usage，
+     * 这样流式调用也能做准确计费。</p>
+     */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    static class StreamOptions {
+        @JsonProperty("include_usage")
+        private Boolean includeUsage;
+
+        /** 快捷构造“在流式最后一帧返回 usage”的请求参数。 */
+        static StreamOptions includeUsage() {
+            return StreamOptions.builder().includeUsage(true).build();
+        }
     }
 
     @Data
@@ -339,6 +388,7 @@ public class OpenAiCompatibleChatClient {
     @JsonIgnoreProperties(ignoreUnknown = true)
     static class OpenAiChatChunk {
         private List<ChunkChoice> choices;
+        private Usage usage;
     }
 
     @Data
@@ -373,6 +423,7 @@ public class OpenAiCompatibleChatClient {
         private String content;
     }
 
+    /** 非流式响应中的 usage 结构。 */
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
@@ -384,6 +435,29 @@ public class OpenAiCompatibleChatClient {
         private Integer completionTokens;
         @com.fasterxml.jackson.annotation.JsonProperty("total_tokens")
         private Integer totalTokens;
+        @JsonProperty("prompt_tokens_details")
+        private PromptTokensDetails promptTokensDetails;
+
+        /**
+         * 读取缓存命中的 prompt token 数。
+         *
+         * <p>很多 provider 会把它放在嵌套对象里，而不是直接放在 usage 顶层。</p>
+         */
+        Integer getCachedPromptTokens() {
+            return promptTokensDetails == null || promptTokensDetails.getCachedTokens() == null
+                    ? 0
+                    : promptTokensDetails.getCachedTokens();
+        }
+    }
+
+    /** prompt token 细分结构，主要读取 cached_tokens。 */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    static class PromptTokensDetails {
+        @JsonProperty("cached_tokens")
+        private Integer cachedTokens;
     }
 }
 

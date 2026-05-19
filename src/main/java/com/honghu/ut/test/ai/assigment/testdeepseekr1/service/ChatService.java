@@ -3,6 +3,7 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.service;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.ChatMemoryConfig;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.DefaultSystemPromptProvider;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.config.properties.AiProviderProperties;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.AiCallContext;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.ChatResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.AiModelDefinition;
@@ -10,6 +11,8 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatMessage;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.ChatSession;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.RagDocument;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.PricingNotConfiguredException;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.exception.QuotaExceededException;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retrieval.retriever.RagRetrievalService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.rag.retrieval.pipeline.RagRequest;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepository;
@@ -177,9 +180,10 @@ public class ChatService {
             }
             messages.add(new UserMessage(request.getMessage()));
 
-            return aiChatModelGatewayService.chat(modelDefinition, messages, request.getTemperature(), request.getMaxTokens());
+            return aiChatModelGatewayService.chat(modelDefinition, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, null, "structured-chat"));
 
         } catch (Exception e) {
+            rethrowPolicyException(e);
             log.warn("结构化聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
 
             // 检查是否是连接相关异常
@@ -338,7 +342,7 @@ public class ChatService {
 
         // 步骤 4: 执行流式聊天并保存 AI 回复
         // 使用带历史记录和重试机制的流式聊天方法
-        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, selectedModel, systemPrompt, selectedHistory, memorySystemPrompts, ragContextPrompt, MAX_RETRIES);
+        Flux<ChatResponse> responseFlux = structuredStreamChatWithRetryAndHistory(request, selectedModel, systemPrompt, selectedHistory, memorySystemPrompts, ragContextPrompt, userMsg.getChatId(), MAX_RETRIES);
 
         // 异步保存 AI 响应到数据库（不阻塞流式传输）
         StringBuilder fullContent = new StringBuilder();
@@ -378,6 +382,7 @@ public class ChatService {
                                                                        List<ChatMessage> history,
                                                                        List<String> memorySystemPrompts,
                                                                        String ragContextPrompt,
+                                                                       Long chatId,
                                                                        int remainingRetries) {
         return Flux.defer(() -> {
             log.info("开始处理带历史记录的结构化流式聊天请求：{} (剩余重试次数：{})", request, remainingRetries);
@@ -413,11 +418,14 @@ public class ChatService {
             log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, memorySystemMessages={}, ragTokens≈{}, historyMessages={}", request.getSessionId(), encoding.countTokens(resolvedSystemPrompt), memorySystemPrompts.size(), ragTokens, history.size());
 
             // 使用流式响应日志记录器（可配置）
-            return logStreamingResponse(aiChatModelGatewayService.streamChat(selectedModel, messages, request.getTemperature(), request.getMaxTokens()));
+            return logStreamingResponse(aiChatModelGatewayService.streamChat(selectedModel, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, chatId, "structured-stream")));
         }).onErrorResume(e -> {
+            if (e instanceof QuotaExceededException || e instanceof PricingNotConfiguredException) {
+                return Flux.error(e);
+            }
             log.warn("结构化流式聊天处理失败 (剩余重试次数：{}): {}", remainingRetries, e.getMessage());
             if (isConnectionException((Exception) e) && remainingRetries > 0) {
-                return Mono.delay(Duration.ofMillis(RETRY_DELAY_MS)).thenMany(structuredStreamChatWithRetryAndHistory(request, selectedModel, resolvedSystemPrompt, history, memorySystemPrompts, ragContextPrompt, remainingRetries - 1));
+                return Mono.delay(Duration.ofMillis(RETRY_DELAY_MS)).thenMany(structuredStreamChatWithRetryAndHistory(request, selectedModel, resolvedSystemPrompt, history, memorySystemPrompts, ragContextPrompt, chatId, remainingRetries - 1));
             }
             return Flux.error(new RuntimeException("聊天服务暂时不可用：" + e.getMessage(), e));
         });
@@ -466,6 +474,37 @@ public class ChatService {
         // 检查常见的连接异常关键词
         String lowerMsg = message.toLowerCase();
         return lowerMsg.contains("closedchannel") || lowerMsg.contains("connection refused") || lowerMsg.contains("connect timed out") || lowerMsg.contains("connection reset") || lowerMsg.contains("broken pipe") || e.getCause() instanceof java.nio.channels.ClosedChannelException || e.getCause() instanceof java.net.ConnectException;
+    }
+
+    /**
+     * 为本次聊天构造 AI 网关调用上下文。
+     *
+     * <p>这里故意只提取网关真正关心的字段：userId、workspaceId、sessionId、chatId 和 source。
+     * 这样 ChatService 不需要把完整 ChatRequest 整个传给网关，耦合更低。</p>
+     */
+    private AiCallContext buildCallContext(ChatRequest request, Long chatId, String source) {
+        return AiCallContext.builder()
+                .userId(request == null ? null : request.getUserId())
+                .workspaceId(request == null ? null : request.getWorkspaceId())
+                .sessionId(request == null ? null : request.getSessionId())
+                .chatId(chatId)
+                .source(source)
+                .build();
+    }
+
+    /**
+     * 把“策略类异常”原样重新抛出。
+     *
+     * <p>QuotaExceededException 和 PricingNotConfiguredException 都属于“业务上有明确含义的拦截”，
+     * 不能被通用重试/包装逻辑吃掉，否则前端会看不到正确的 429 / 503 语义。</p>
+     */
+    private void rethrowPolicyException(Exception e) {
+        if (e instanceof QuotaExceededException quotaExceededException) {
+            throw quotaExceededException;
+        }
+        if (e instanceof PricingNotConfiguredException pricingNotConfiguredException) {
+            throw pricingNotConfiguredException;
+        }
     }
 
     /**

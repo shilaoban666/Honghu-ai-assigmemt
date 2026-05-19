@@ -1,7 +1,11 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.repository;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -88,4 +92,30 @@ public interface UserRepository extends JpaRepository<User, String> {
      * @return 是否存在
      */
     boolean existsByEmail(String email);
+
+    long countByUserRole(User.UserRole userRole);
+
+    @Query(value = """
+            select *
+            from users u
+            where (cast(:q as text) is null
+                or lower(cast(u.username as text)) like concat('%', lower(cast(:q as text)), '%')
+                or lower(coalesce(cast(u.nickname as text), '')) like concat('%', lower(cast(:q as text)), '%')
+                or lower(coalesce(cast(u.email as text), '')) like concat('%', lower(cast(:q as text)), '%'))
+              and (cast(:role as text) is null or cast(u.user_role as text) = cast(:role as text))
+            order by u.created_at desc
+            """,
+            countQuery = """
+            select count(*)
+            from users u
+            where (cast(:q as text) is null
+                or lower(cast(u.username as text)) like concat('%', lower(cast(:q as text)), '%')
+                or lower(coalesce(cast(u.nickname as text), '')) like concat('%', lower(cast(:q as text)), '%')
+                or lower(coalesce(cast(u.email as text), '')) like concat('%', lower(cast(:q as text)), '%'))
+              and (cast(:role as text) is null or cast(u.user_role as text) = cast(:role as text))
+            """,
+            nativeQuery = true)
+    Page<User> searchAdminUsers(@Param("q") String q,
+                                @Param("role") String role,
+                                Pageable pageable);
 }

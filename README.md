@@ -472,6 +472,21 @@ app:
 ```
 
 > 使用 **Liquibase** 进行数据库版本管理，变更记录位于 `src/main/resources/DB/changelog/`
+>
+> 当前项目采用 **YAML-first** 维护方式：
+> - Spring Boot 运行入口使用 `db.changelog-master.yaml`
+> - 各子 changelog 也统一使用 `.yaml`
+> - 为了兼容历史 `DATABASECHANGELOG` 记录，各 YAML 文件仍保留原 `.xml` `logicalFilePath`
+> - 因此数据库里看到的 `filename` 仍可能是 `db.changelog-*.xml`，这是兼容设计，不代表运行时还在加载 XML 文件
+
+### Liquibase YAML-first 约定
+
+- 运行时主入口：`src/main/resources/DB/changelog/db.changelog-master.yaml`
+- 历史兼容锚点：各 YAML 文件首行的 `logicalFilePath: "DB/changelog/*.xml"`
+- 维护原则：
+  - 新增/修改变更请优先编辑 `.yaml`
+  - 不要随意修改已有 `changeSet id + author + logicalFilePath`
+  - 如果要排查校验和，请优先依据 `DATABASECHANGELOG.filename` 中保留的 `.xml` 逻辑路径来定位
 
 <br/>
 
