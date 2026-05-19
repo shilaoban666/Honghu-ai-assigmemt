@@ -53,6 +53,9 @@ public class AwsProperties {
         /** 存储桶名称 */
         private String uploadedBucket;
 
+        /** 用户头像存储桶名称 */
+        private String avatarBucket = "honghu-ai-avatar";
+
         /** 预签名 URL 过期时间（分钟） */
         private int presignedUrlExpirationMinutes = 30;
     }
