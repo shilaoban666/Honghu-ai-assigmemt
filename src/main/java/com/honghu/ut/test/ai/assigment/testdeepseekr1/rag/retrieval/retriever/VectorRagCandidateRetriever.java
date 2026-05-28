@@ -91,10 +91,12 @@ public class VectorRagCandidateRetriever implements RagCandidateRetriever {
         if (filter == null) return List.of();
 
         // 构造统一的向量检索请求：包含 query、topK、相似度阈值和过滤表达式。
-        SearchRequest req = SearchRequest.query(query)
-                .withTopK(Math.max(1, topK))
-                .withSimilarityThreshold(ragProperties.getRetrieval().getSimilarityThreshold())
-                .withFilterExpression(filter);
+        SearchRequest req = SearchRequest.builder()
+                .query(query)
+                .topK(Math.max(1, topK))
+                .similarityThreshold(ragProperties.getRetrieval().getSimilarityThreshold())
+                .filterExpression(filter)
+                .build();
 
         // VectorStore 通过 ObjectProvider 延迟获取，允许在某些环境中完全不启用向量检索相关 Bean。
         VectorStore vectorStore = vectorStoreProvider.getIfAvailable();
@@ -178,7 +180,7 @@ public class VectorRagCandidateRetriever implements RagCandidateRetriever {
                 String.valueOf(meta.getOrDefault("fileName", "")),
                 String.valueOf(meta.getOrDefault("fileType", "")),
                 toInt(meta.get("chunkIndex")),
-                doc.getContent(),
+                doc.getText(),
                 score);
         return RetrievalCandidate.builder().snippet(snippet).source("vector").rawScore(score).build();
     }

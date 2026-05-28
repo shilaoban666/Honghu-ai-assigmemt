@@ -20,6 +20,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepo
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.core.SkillResolverService;
 import com.knuddels.jtokkit.Encodings;
 import com.knuddels.jtokkit.api.Encoding;
 import com.knuddels.jtokkit.api.EncodingRegistry;
@@ -34,6 +35,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -67,6 +69,7 @@ public class ChatService {
     private final RagRetrievalService ragRetrievalService;
     private final AiModelAccessService aiModelAccessService;
     private final AiChatModelGatewayService aiChatModelGatewayService;
+    private final SkillResolverService skillResolverService;
     private final AiProviderProperties aiProviderProperties;
     private final ConnectionHealthChecker connectionHealthChecker;
 
@@ -104,7 +107,10 @@ public class ChatService {
             AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(message).orElse(null);
             String systemPrompt = resolveSystemPrompt(null, taskKeywordMatch);
             AiModelDefinition model = resolveChatModelDefinition(null, null, message, taskKeywordMatch);
-            return aiChatModelGatewayService.chat(model, List.of(new SystemMessage(systemPrompt), new UserMessage(message)), null, null);
+            // 简单聊天没有用户和会话上下文，因此只解析“游客可用 + 默认启用 + 必装”的工具集合。
+            ToolCallbackProvider toolCallbacks = skillResolverService.resolveToolCallbacksForSession(null, null);
+            // 把工具集合交给模型网关；当前只有本地 Ollama 分支会真正启用 Spring AI tool calling。
+            return aiChatModelGatewayService.chat(model, List.of(new SystemMessage(systemPrompt), new UserMessage(message)), null, null, buildCallContext(null, null, "simple-chat"), toolCallbacks);
         } catch (Exception e) {
             log.warn("简单聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
 
@@ -180,7 +186,10 @@ public class ChatService {
             }
             messages.add(new UserMessage(request.getMessage()));
 
-            return aiChatModelGatewayService.chat(modelDefinition, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, null, "structured-chat"));
+            // 非流式结构化聊天也按 userId + sessionId 解析会话级技能，保证和流式聊天行为一致。
+            ToolCallbackProvider toolCallbacks = skillResolverService.resolveToolCallbacksForSession(request.getUserId(), request.getSessionId());
+            // 这里传入 toolCallbacks 后，模型在回答过程中就可以调用当前会话启用的内置工具。
+            return aiChatModelGatewayService.chat(modelDefinition, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, null, "structured-chat"), toolCallbacks);
 
         } catch (Exception e) {
             rethrowPolicyException(e);
@@ -418,7 +427,10 @@ public class ChatService {
             log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, memorySystemMessages={}, ragTokens≈{}, historyMessages={}", request.getSessionId(), encoding.countTokens(resolvedSystemPrompt), memorySystemPrompts.size(), ragTokens, history.size());
 
             // 使用流式响应日志记录器（可配置）
-            return logStreamingResponse(aiChatModelGatewayService.streamChat(selectedModel, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, chatId, "structured-stream")));
+            // 流式聊天是主路径，因此这里按当前用户和会话动态注入已启用技能，避免把全部工具塞进上下文导致 context 膨胀。
+            ToolCallbackProvider toolCallbacks = skillResolverService.resolveToolCallbacksForSession(request.getUserId(), request.getSessionId());
+            // chatId 写入调用上下文，工具日志可以关联到触发本次调用的用户消息。
+            return logStreamingResponse(aiChatModelGatewayService.streamChat(selectedModel, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, chatId, "structured-stream"), toolCallbacks));
         }).onErrorResume(e -> {
             if (e instanceof QuotaExceededException || e instanceof PricingNotConfiguredException) {
                 return Flux.error(e);
@@ -454,7 +466,10 @@ public class ChatService {
             AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(message).orElse(null);
             String systemPrompt = resolveSystemPrompt(null, taskKeywordMatch);
             AiModelDefinition model = resolveChatModelDefinition(null, null, message, taskKeywordMatch);
-            return aiChatModelGatewayService.streamChat(model, List.of(new SystemMessage(systemPrompt), new UserMessage(message)), null, null).map(ChatResponse::getContent);
+            // 简单流式聊天同样走默认工具解析，确保“时间/计算器”等必装工具在无会话场景也可用。
+            ToolCallbackProvider toolCallbacks = skillResolverService.resolveToolCallbacksForSession(null, null);
+            // 最终只向上层暴露 content 字符串流，工具调用细节由模型网关和 ToolExecutorService 内部处理。
+            return aiChatModelGatewayService.streamChat(model, List.of(new SystemMessage(systemPrompt), new UserMessage(message)), null, null, buildCallContext(null, null, "simple-stream"), toolCallbacks).map(ChatResponse::getContent);
         }).onErrorResume(e -> {
             log.warn("简单流式聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
             if (e instanceof Exception exception && isConnectionException(exception) && remainingRetries > 0) {

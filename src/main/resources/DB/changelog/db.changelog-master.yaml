@@ -114,3 +114,7 @@ databaseChangeLog:
       # 计费、角色默认模型、套餐权益、workspace 多租户能力。
       file: "DB/changelog/db.changelog-billing-roles-tenancy.yaml"
       relativeToChangelogFile: false
+  - include:
+      # Skill / Tool 技能商店与会话级工具开关。
+      file: "DB/changelog/db.changelog-skills.yaml"
+      relativeToChangelogFile: false
