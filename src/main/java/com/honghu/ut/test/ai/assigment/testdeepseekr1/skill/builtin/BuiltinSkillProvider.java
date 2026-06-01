@@ -66,6 +66,18 @@ public class BuiltinSkillProvider {
                 .toList();
     }
 
+    /**
+     * 把数据库中的一条工具定义绑定回当前 JVM 中真实可调用的 Java 方法。
+     *
+     * <p>数据库只保存元数据：工具名、描述、参数 schema、风险等级等；它并不保存 Java 对象引用。
+     * 因此运行时必须根据 skillKey 找到对应 {@code @NativeSkill} Bean，再根据 toolName 找到对应
+     * {@code @NativeTool} 方法，最后组合成 {@link ResolvedTool}，供执行器反射调用。</p>
+     *
+     * @param row skill_tool 表中的工具定义行
+     * @param skill row 所属的 Skill；可能因异常数据为空
+     * @param beansBySkillKey 当前 Spring 容器中内置技能 Bean 的索引
+     * @return 绑定成功后的运行时工具；如果数据库和代码不同步则返回 null 并跳过
+     */
     private ResolvedTool toResolvedTool(SkillTool row, Skill skill, Map<String, Object> beansBySkillKey) {
         if (skill == null) {
             // 数据库外键正常时不会发生；保留兜底，避免异常数据拖垮整轮工具解析。
@@ -113,6 +125,14 @@ public class BuiltinSkillProvider {
         }
     }
 
+    /**
+     * 扫描当前 Spring 容器中的所有内置技能 Bean，并按技能稳定 key 建立索引。
+     *
+     * <p>索引 key 使用 {@code @NativeSkill.key()}，不是 Spring Bean 名称，也不是 Java 类名。
+     * 这样即使重命名类或调整 Bean 名称，只要 key 不变，数据库里的 skill.skill_key 仍然能找到正确执行对象。</p>
+     *
+     * @return skillKey 到 Spring Bean 实例的映射
+     */
     private Map<String, Object> nativeBeansBySkillKey() {
         Map<String, Object> result = new HashMap<>();
         applicationContext.getBeansWithAnnotation(NativeSkill.class).values()

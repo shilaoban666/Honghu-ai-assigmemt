@@ -73,35 +73,56 @@ public class BuiltinSkillRegistrar {
             skill.setEnabled(true);
             skill = skillRepository.save(skill);
 
-            // 内置工具定义以代码为准；每次启动先删除旧工具，再按当前方法签名重建，避免脏 schema 残留。
-            skillToolRepository.deleteBySkillId(skill.getId());
+            // 内置工具定义以代码为准。这里改为“按 qualified_name 幂等 upsert + 清理失效工具”，
+            // 而不是“先 deleteBySkillId 再全量 insert”。原方案在重启或多实例并发启动时，会与
+            // skill_tool.qualified_name 的全局唯一约束冲突（例如 builtin__kb__search 已存在），
+            // 导致 ApplicationReadyEvent 抛 DataIntegrityViolationException 并使整个应用启动失败。
+            java.util.Set<String> currentQualifiedNames = new java.util.HashSet<>();
             int sort = 0;
             for (Method method : toolIntrospector.findToolMethods(bean)) {
                 // 方法上的 @NativeTool 决定 LLM 看到的工具描述和危险等级。
                 NativeTool toolAnn = method.getAnnotation(NativeTool.class);
                 // 工具名允许注解覆盖；没写 name 时默认使用 Java 方法名。
                 String toolName = toolIntrospector.toolName(method);
-                SkillTool tool = SkillTool.builder()
-                        // skill_id 建立 Tool 到 Skill 的归属关系，前端开关 Skill 时能一次控制多个 Tool。
-                        .skillId(skill.getId())
-                        .toolName(toolName)
-                        // qualified_name 加上 builtin 和 skill key 前缀，避免 MCP/自定义工具与内置工具重名。
-                        .qualifiedName("builtin__" + ann.key() + "__" + toolName)
-                        // description 是模型选择工具的重要依据，必须来自代码注解而不是前端文案。
-                        .description(toolAnn.description())
-                        // parameters_schema 告诉模型每个参数的类型、必填性和说明。
-                        .parametersSchema(toJson(toolIntrospector.parametersSchema(method)))
-                        // danger_level 后续用于二次确认、权限限制和调用日志风险标记。
-                        .dangerLevel(toolAnn.dangerLevel())
-                        // sort_order 保持工具在详情页和模型注入时的稳定顺序。
-                        .sortOrder(sort++)
-                        .build();
+                // qualified_name 加上 builtin 和 skill key 前缀，避免 MCP/自定义工具与内置工具重名。
+                String qualifiedName = "builtin__" + ann.key() + "__" + toolName;
+                // 已存在则原地更新，不存在才新建，彻底避免 delete+insert 与唯一约束竞争。
+                SkillTool tool = skillToolRepository.findByQualifiedName(qualifiedName).orElseGet(SkillTool::new);
+                // skill_id 建立 Tool 到 Skill 的归属关系，前端开关 Skill 时能一次控制多个 Tool。
+                tool.setSkillId(skill.getId());
+                tool.setToolName(toolName);
+                tool.setQualifiedName(qualifiedName);
+                // description 是模型选择工具的重要依据，必须来自代码注解而不是前端文案。
+                tool.setDescription(toolAnn.description());
+                // parameters_schema 告诉模型每个参数的类型、必填性和说明。
+                tool.setParametersSchema(toJson(toolIntrospector.parametersSchema(method)));
+                // danger_level 后续用于二次确认、权限限制和调用日志风险标记。
+                tool.setDangerLevel(toolAnn.dangerLevel());
+                // sort_order 保持工具在详情页和模型注入时的稳定顺序。
+                tool.setSortOrder(sort++);
                 skillToolRepository.save(tool);
+                currentQualifiedNames.add(qualifiedName);
+            }
+            // 清理代码里已经删除、但数据库还残留的旧工具：仍归属该技能但当前已不存在的 qualified_name。
+            for (SkillTool existing : skillToolRepository.findBySkillIdOrderBySortOrderAsc(skill.getId())) {
+                if (!currentQualifiedNames.contains(existing.getQualifiedName())) {
+                    skillToolRepository.delete(existing);
+                }
             }
             log.info("Registered builtin skill {} with {} tools", skill.getDisplayName(), sort);
         }
     }
 
+    /**
+     * 把内置工具参数 schema 等结构化对象序列化成 JSON 字符串。
+     *
+     * <p>{@code skill_tool.parameters_schema} 在数据库中是 JSONB 字段，但 JPA 实体里使用 String 承载。
+     * 因此启动注册时需要先把 Jackson 节点或 Map 序列化成字符串，再交给 {@code @ColumnTransformer}
+     * 写入 PostgreSQL JSONB。</p>
+     *
+     * @param value 需要写入 JSONB 字段的结构化对象
+     * @return 合法 JSON 字符串
+     */
     private String toJson(Object value) {
         try {
             // JSONB 字段最终由数据库保存为结构化 JSON，这里先序列化成字符串交给 JPA。

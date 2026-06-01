@@ -6,6 +6,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.QuotaSnapshot;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.UserAvatarResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.dto.UserResponse;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.security.UserSessionTokenService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.AiModelAccessService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.QuotaService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.service.UserAvatarService;
@@ -40,6 +41,7 @@ public class UserController {
     private final AiModelAccessService aiModelAccessService;
     private final QuotaService quotaService;
     private final UserAvatarService userAvatarService;
+    private final UserSessionTokenService userSessionTokenService;
 
     /**
      * 创建新用户
@@ -202,6 +204,10 @@ public class UserController {
                         .toList()
         );
         response = withAvatar(response, user);
+        UserSessionTokenService.IssuedToken issuedToken = userSessionTokenService.issueToken(user);
+        response.setToken(issuedToken.token());
+        response.setTokenType(issuedToken.tokenType());
+        response.setTokenExpiresAt(issuedToken.expiresAt());
 
         log.info("身份 {} 登录成功，可用模型数={}", user.getUserRole(), response.getAvailableModels().size());
         return ResponseEntity.ok(response);

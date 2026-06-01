@@ -10,6 +10,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnTransformer;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
@@ -58,6 +59,7 @@ public class ToolInvocationLog {
 
     // 模型生成的原始 JSON arguments，用 JSONB 保存便于后续按字段排查。
     @Column(name = "arguments", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
     private String arguments;
 
     // 工具结果预览，执行器会截断到 2KB，防止大结果撑爆日志表。

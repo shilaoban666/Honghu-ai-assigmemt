@@ -14,6 +14,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnTransformer;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
@@ -58,8 +59,13 @@ public class Skill {
     private String displayName;
 
     // 给用户看的技能简介，也会帮助管理员理解这个 Skill 容器的作用。
+    // 对全网爬取的 MCP / Claude Skill，这里保存英文原文，便于变更检测与重译。
     @Column(name = "description")
     private String description;
+
+    // 中文翻译后的描述；爬取时由 LLM 生成。展示层优先用它，没有时回退 description。
+    @Column(name = "description_zh", columnDefinition = "text")
+    private String descriptionZh;
 
     // 图标 URL 或图标占位文本；内置技能当前也复用这个字段存图标文本。
     @Column(name = "icon_url", length = 500)
@@ -120,6 +126,7 @@ public class Skill {
 
     // MCP 需要的环境变量 schema，例如 API Key 名称、是否必填和说明。
     @Column(name = "mcp_env_schema", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
     private String mcpEnvSchema;
 
     // 管理员级全局开关；false 时即使用户安装或会话启用，也不会注入给模型。

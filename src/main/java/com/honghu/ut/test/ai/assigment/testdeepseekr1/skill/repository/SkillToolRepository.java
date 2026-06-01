@@ -25,6 +25,9 @@ public interface SkillToolRepository extends JpaRepository<SkillTool, Long> {
     // 按多个 skillId 查询工具，并保持技能内工具顺序稳定。
     List<SkillTool> findBySkillIdInOrderBySortOrderAsc(Collection<Long> skillIds);
 
+    // 查询某一个技能下的全部工具，按 sort_order 排序；详情页、启动同步清理旧工具时都会用到。
+    List<SkillTool> findBySkillIdOrderBySortOrderAsc(Long skillId);
+
     // 按全局唯一工具名查找，后续工具调用日志或手动调用接口会用到。
     Optional<SkillTool> findByQualifiedName(String qualifiedName);
 }

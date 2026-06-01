@@ -1,30 +1,46 @@
 package com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.core;
 
 /**
- * 工具调用上下文的线程级临时存储。
- * <p>
- * 内置工具方法本身只暴露给模型需要填写的业务参数；用户 id、会话 id 这类安全上下文由后端放入 ThreadLocal。
- * 使用后必须 clear，避免 Web 容器复用线程时把上一次请求的身份泄漏到下一次工具调用。
+ * 把可信工具上下文暴露给内置工具的 ThreadLocal 桥接器。
+ *
+ * <p>标记了 {@code @NativeTool} 的 Java 方法应该只声明“模型需要填写的业务参数”。如果工具需要当前用户、
+ * 当前会话或当前消息，就从这个 holder 读取，而不是声明一个可被模型伪造的 {@code userId} 参数。
+ * 因为 Web 容器线程会复用，所以每次工具执行结束后必须清理 ThreadLocal。</p>
  */
 public final class ToolExecutionContextHolder {
-    // 每个请求线程保存自己的 ToolExecutionContext，不在线程之间共享。
+
+    /** 当前线程上的工具调用上下文；每次工具执行结束必须 remove。 */
     private static final ThreadLocal<ToolExecutionContext> HOLDER = new ThreadLocal<>();
 
+    /**
+     * 工具类不允许实例化；所有方法都是 static。
+     */
     private ToolExecutionContextHolder() {
     }
 
+    /**
+     * 保存当前线程正在执行的工具调用上下文。
+     */
     public static void set(ToolExecutionContext context) {
-        // 工具执行前写入上下文，工具内部可通过 get() 获取当前用户和会话。
+        // 将本次调用的可信上下文绑定到当前执行线程。
         HOLDER.set(context);
     }
 
+    /**
+     * 返回当前线程的工具调用上下文。
+     *
+     * <p>如果工具是在测试或管理任务中直接调用、没有经过正常模型 callback 链路，则可能返回 null。</p>
+     */
     public static ToolExecutionContext get() {
-        // 没有上下文时返回 null，工具需要自行决定是否允许匿名执行。
+        // 没有上下文时返回 null，调用方需要根据工具需求自行决定是否报错。
         return HOLDER.get();
     }
 
+    /**
+     * 清理当前线程上的上下文，防止下一个请求读到旧身份或旧会话数据。
+     */
     public static void clear() {
-        // 执行结束必须移除，而不是 set(null)，这样 ThreadLocalMap 可以释放 value 引用。
+        // remove 而不是 set(null)，彻底清掉 ThreadLocalMap 中的值，降低线程复用泄漏风险。
         HOLDER.remove();
     }
 }

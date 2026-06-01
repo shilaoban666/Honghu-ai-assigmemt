@@ -10,6 +10,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnTransformer;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
@@ -46,6 +47,7 @@ public class UserSkillInstall {
 
     // 用户私有配置，例如 MCP/API Key；生产环境应在写入前加密。
     @Column(name = "user_config", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
     private String userConfig;
 
     // 用户是否启用该安装；卸载可以物理删除，也可以先置为 false 做软停用。

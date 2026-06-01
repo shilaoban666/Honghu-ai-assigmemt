@@ -64,6 +64,14 @@ public class AiCallContext {
     private String source;
 
     /**
+     * Current user query text carried as trusted runtime context.
+     *
+     * <p>Tools may use this as a default query when the model omits an explicit
+     * parameter. It is not inserted into the model-controlled arguments JSON.</p>
+     */
+    private String query;
+
+    /**
      * 构造匿名调用上下文。
      *
      * <p>匿名上下文仍然会生成 requestId，保证失败或调试场景也能留下可追踪 ID。

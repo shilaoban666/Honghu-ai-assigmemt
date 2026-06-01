@@ -130,13 +130,13 @@ class AiChatModelGatewayServiceTest {
     void shouldUseDeepseekFallbackBeforeCallingLocalModelWhenOllamaUnavailable() {
         when(connectionHealthChecker.isOllamaAvailable()).thenReturn(false);
         when(aiModelAccessService.requireEnabledModel("deepseek-v3.2")).thenReturn(fallbackModel);
-        when(openAiCompatibleChatClient.chat(eq(fallbackModel), any(), eq(messages), eq(null), eq(null)))
+        when(openAiCompatibleChatClient.chat(eq(fallbackModel), any(), eq(messages), eq(null), eq(null), any(), any()))
                 .thenReturn(ChatResponse.success("cloud", "deepseek-v3.2"));
 
         ChatResponse response = gatewayService.chat(localModel, messages, null, null);
 
         assertThat(response.getModel()).isEqualTo("deepseek-v3.2");
-        verify(openAiCompatibleChatClient).chat(eq(fallbackModel), any(), eq(messages), eq(null), eq(null));
+        verify(openAiCompatibleChatClient).chat(eq(fallbackModel), any(), eq(messages), eq(null), eq(null), any(), any());
     }
 
     /**
@@ -149,7 +149,7 @@ class AiChatModelGatewayServiceTest {
         when(aiModelAccessService.requireEnabledModel("deepseek-v3.2")).thenReturn(fallbackModel);
         when(ollamaChatModel.call(any(Prompt.class)))
                 .thenThrow(new RuntimeException("connection refused", new ConnectException("connection refused")));
-        when(openAiCompatibleChatClient.chat(eq(fallbackModel), any(), eq(messages), eq(null), eq(null)))
+        when(openAiCompatibleChatClient.chat(eq(fallbackModel), any(), eq(messages), eq(null), eq(null), any(), any()))
                 .thenReturn(ChatResponse.success("cloud-after-fail", "deepseek-v3.2"));
 
         ChatResponse response = gatewayService.chat(localModel, messages, null, null);

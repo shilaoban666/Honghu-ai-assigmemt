@@ -2,44 +2,37 @@ package com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.core;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.lang.reflect.Method;
+
 /**
- * 运行时已经解析完成的工具定义。
+ * 一个已经解析完成、可以执行的内置 Java 工具定义。
  *
- * <p>数据库中的 {@code skill_tool} 只保存工具元数据；真正执行时还需要 Spring Bean 和
- * Java Method。这个 record 把“数据库元数据”和“反射执行目标”合在一起，供
- * {@link ToolExecutorService} 调用，也方便上层转换为 Spring AI 的工具回调。</p>
+ * <p>{@code skill_tool} 数据库行只保存模型可见的元数据，例如工具名、描述、参数 schema 和危险等级。
+ * 但内置 Java 工具真正执行时还需要当前 JVM 中的 Spring Bean 和 Java Method。{@code ResolvedTool}
+ * 把这两部分合在一起：既有持久化元数据用于展示、注入和审计，也有反射目标交给
+ * {@link ToolExecutorService} 调用。</p>
  *
- * @param skillId 所属技能 ID，用于调用日志和后续统计
- * @param skillKey 所属技能业务 key，例如 {@code math}、{@code kb}、{@code mcp:tavily}
- * @param skillName 所属技能展示名，方便日志或调试时读懂来源
- * @param qualifiedName 注入模型的全局唯一工具名
+ * @param skillId 所属 {@code skill.id}，用于审计和统计
+ * @param skillKey 稳定技能 key，例如 {@code time} 或 {@code kb}
+ * @param skillName 技能展示名，便于调试和未来 UI 展示
+ * @param qualifiedName 全局唯一、模型实际看到的工具名
  * @param toolName 技能内部短工具名
- * @param description 给模型看的工具描述
- * @param parametersSchema 工具参数 JSON Schema
- * @param dangerLevel 工具风险等级
+ * @param description 展示给模型的工具说明
+ * @param parametersSchema 描述参数的 JSON Schema 对象
+ * @param dangerLevel 执行前需要检查的风险等级
  * @param bean Spring 管理的技能 Bean
- * @param method Bean 上被 {@code @NativeTool} 标记的方法
+ * @param method 标记了 {@code @NativeTool} 的 Java 方法
  */
 public record ResolvedTool(
-        // 所属技能 id，用于调用日志和后续统计。
         Long skillId,
-        // 所属技能业务 key，例如 math、kb、mcp:tavily。
         String skillKey,
-        // 所属技能展示名，方便日志或调试时读懂来源。
         String skillName,
-        // 注入模型的全局唯一工具名。
         String qualifiedName,
-        // 技能内部短工具名。
         String toolName,
-        // 给模型看的工具描述。
         String description,
-        // 工具参数 JSON Schema。
         JsonNode parametersSchema,
-        // 工具风险等级。
         DangerLevel dangerLevel,
-        // Spring 管理的技能 Bean。
         Object bean,
-        // Bean 上被 @NativeTool 标记的方法。
-        java.lang.reflect.Method method
+        Method method
 ) {
 }
