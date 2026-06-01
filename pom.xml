@@ -28,7 +28,13 @@
     </scm>
     <properties>
         <java.version>17</java.version>
-        <spring-ai.version>1.0.0-M3</spring-ai.version>
+        <!--
+            Spring AI 统一版本号。
+
+            当前升级到 1.0.0 GA，目的是使用稳定版 ToolCallback、ChatClient、OpenAI-compatible
+            和 Milvus starter API；所有 Spring AI 依赖都引用这个属性，避免不同模块版本不一致。
+        -->
+        <spring-ai.version>1.0.0</spring-ai.version>
     </properties>
 
     <repositories>
@@ -56,24 +62,39 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         
-        <!-- Spring AI Ollama Starter -->
+        <!--
+            Spring AI Ollama Starter。
+
+            这个 starter 负责本地 Ollama/DeepSeek 测试模型的 Spring AI 集成。
+            升级 1.0.0 后 artifactId 使用 starter-model-ollama，和旧版命名不同。
+        -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-ollama-spring-boot-starter</artifactId>
+            <artifactId>spring-ai-starter-model-ollama</artifactId>
             <version>${spring-ai.version}</version>
         </dependency>
 
-        <!-- Spring AI OpenAI Starter（仅用于 DashScope OpenAI-compatible embeddings） -->
+        <!--
+            Spring AI OpenAI Starter。
+
+            当前主要用于 RAG embedding 的 OpenAI-compatible 客户端能力；
+            Chat 调用不直接依赖默认 OpenAiChatModel，而是由 AiChatModelGatewayService 路由到 DeepSeek/Ollama 等 provider。
+        -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-openai-spring-boot-starter</artifactId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
             <version>${spring-ai.version}</version>
         </dependency>
 
-        <!-- Spring AI Milvus Vector Store -->
+        <!--
+            Spring AI Milvus Vector Store。
+
+            检索侧仍使用 Spring AI VectorStore 做 similaritySearch；
+            写入侧有自定义 MilvusVectorRepository 负责幂等 delete/insert，两者共享同一套 Milvus 配置。
+        -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-milvus-store-spring-boot-starter</artifactId>
+            <artifactId>spring-ai-starter-vector-store-milvus</artifactId>
             <version>${spring-ai.version}</version>
         </dependency>
 
@@ -108,6 +129,18 @@
             <groupId>com.squareup.okhttp3</groupId>
             <artifactId>okhttp</artifactId>
             <version>4.12.0</version>
+        </dependency>
+
+        <!--
+            Fastjson。
+
+            Milvus Java SDK 的 JSON 字段插入当前使用 com.alibaba.fastjson.JSONObject；
+            这里保留该依赖，避免 RAG 向量写入 metadata JSON 时缺少运行时类型。
+        -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>fastjson</artifactId>
+            <version>1.2.83</version>
         </dependency>
 
         <!-- Spring Boot Data JPA -->
@@ -204,6 +237,21 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <compilerArgs>
+                        <!--
+                            保留 Java 方法参数名。
+
+                            @NativeTool / BuiltinToolIntrospector 需要读取方法参数名生成 JSON Schema；
+                            如果没有 -parameters，反射只能拿到 arg0、arg1，模型看到的工具参数会变得不可读。
+                        -->
+                        <arg>-parameters</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>

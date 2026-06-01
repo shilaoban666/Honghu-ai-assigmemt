@@ -68,6 +68,29 @@ public class UserResponse {
     @Schema(description = "当前可用模型列表")
     private List<AiModelResponse> availableModels;
 
+    /**
+     * Backend-issued bearer token returned by the login endpoint.
+     *
+     * <p>Capability and chat APIs should send this value as
+     * {@code Authorization: Bearer <token>}. The old {@code X-User-Id} header is
+     * now only a development fallback, because authorization must not trust a
+     * user id typed by the browser.</p>
+     */
+    @Schema(description = "Login bearer token", accessMode = Schema.AccessMode.READ_ONLY)
+    private String token;
+
+    /**
+     * Token scheme returned with {@link #token}; currently always {@code Bearer}.
+     */
+    @Schema(description = "Bearer token type", example = "Bearer", accessMode = Schema.AccessMode.READ_ONLY)
+    private String tokenType;
+
+    /**
+     * Absolute token expiration time in server local time.
+     */
+    @Schema(description = "Bearer token expiration time", accessMode = Schema.AccessMode.READ_ONLY)
+    private LocalDateTime tokenExpiresAt;
+
     @Schema(description = "家庭地址", example = "北京市朝阳区 XX 街道 XX 号")
     private String homeAddress;
 

@@ -16,13 +16,18 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaOptions;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
 
 import java.time.Instant;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 统一 AI 模型调用网关。
@@ -66,6 +71,11 @@ public class AiChatModelGatewayService {
 		return chat(model, messages, temperature, maxTokens, AiCallContext.anonymous("legacy-chat"));
 	}
 
+	public ChatResponse chat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, ToolCallbackProvider toolCallbacks) {
+		// 兼容旧调用方：没有传 AiCallContext 时仍然允许传工具集合，但审计来源标记为 legacy-chat。
+		return chat(model, messages, temperature, maxTokens, AiCallContext.anonymous("legacy-chat"), toolCallbacks);
+	}
+
 	/**
 	 * 执行一次带上下文的非流式聊天调用。
 	 *
@@ -80,15 +90,26 @@ public class AiChatModelGatewayService {
 	 * @return 完整的非流式 AI 回复
 	 */
 	public ChatResponse chat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, AiCallContext context) {
+		return chat(model, messages, temperature, maxTokens, context, null);
+	}
+
+	public ChatResponse chat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, AiCallContext context, ToolCallbackProvider toolCallbacks) {
+		// safeContext 会补齐 requestId/source，后面的配额检查和 usage event 都依赖它。
 		AiCallContext safeContext = prepareContext(context, "chat");
 		long startNs = System.nanoTime();
+		// executableModel 可能和用户选择的 model 不同，例如本地 Ollama 不可用时会切到云端回退模型。
 		AiModelDefinition executableModel = resolveExecutableModel(model);
 		AiProviderProperties.Provider provider = resolveProvider(executableModel.getProviderCode());
+		// 把可信调用上下文（userId/sessionId/messageId/query）转成工具上下文 Map。
+		// 它会随每个工具回调一起下传，是工具审计、内置上下文工具和 CLI 危险门正常工作的前提。
+		Map<String, Object> toolContext = buildToolContext(safeContext);
+		List<ToolCallback> normalizedToolCallbacks = normalizeToolCallbacks(toolCallbacks);
 		try {
 			checkQuota(safeContext, model, executableModel, startNs);
 			ChatResponse response = switch (provider.getType()) {
-				case OLLAMA_LOCAL -> chatWithLocalFallback(executableModel, messages, temperature, maxTokens);
-				case OPENAI_COMPATIBLE -> openAiCompatibleChatClient.chat(executableModel, provider, messages, temperature, maxTokens);
+				// 本地 Ollama 与 OpenAI-compatible 两条分支现在都接入工具调用与可信上下文。
+				case OLLAMA_LOCAL -> chatWithLocalFallback(executableModel, messages, temperature, maxTokens, normalizedToolCallbacks, toolContext);
+				case OPENAI_COMPATIBLE -> openAiCompatibleChatClient.chat(executableModel, provider, messages, temperature, maxTokens, normalizedToolCallbacks, toolContext);
 			};
 			CostBreakdown cost = billingService.calculate(response.getModel(), response.getTokenUsage(), Instant.now());
 			usageEventService.recordSuccess(safeContext, model, executableModel, response.getTokenUsage(), cost, elapsedMs(startNs));
@@ -113,6 +134,11 @@ public class AiChatModelGatewayService {
 		return streamChat(model, messages, temperature, maxTokens, AiCallContext.anonymous("legacy-stream"));
 	}
 
+	public Flux<ChatResponse> streamChat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, ToolCallbackProvider toolCallbacks) {
+		// 兼容旧流式调用方：允许传工具集合，但没有显式用户上下文时按 legacy-stream 记账。
+		return streamChat(model, messages, temperature, maxTokens, AiCallContext.anonymous("legacy-stream"), toolCallbacks);
+	}
+
 	/**
 	 * 执行一次带上下文的流式聊天调用。
 	 *
@@ -121,16 +147,25 @@ public class AiChatModelGatewayService {
 	 * 避免流式调用在成本系统里变成黑洞。</p>
 	 */
 	public Flux<ChatResponse> streamChat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, AiCallContext context) {
+		return streamChat(model, messages, temperature, maxTokens, context, null);
+	}
+
+	public Flux<ChatResponse> streamChat(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, AiCallContext context, ToolCallbackProvider toolCallbacks) {
+		// 流式调用开始前就解析安全上下文，后续 doOnComplete/doOnError 都要用它落 usage event。
 		AiCallContext safeContext = prepareContext(context, "stream");
 		long startNs = System.nanoTime();
 		AiModelDefinition executableModel = resolveExecutableModel(model);
 		AiProviderProperties.Provider provider = resolveProvider(executableModel.getProviderCode());
 		checkQuota(safeContext, model, executableModel, startNs);
+		Map<String, Object> toolContext = buildToolContext(safeContext);
+		List<ToolCallback> normalizedToolCallbacks = normalizeToolCallbacks(toolCallbacks);
 		StringBuilder content = new StringBuilder();
 		ChatResponse.TokenUsage[] lastUsage = new ChatResponse.TokenUsage[1];
 		Flux<ChatResponse> upstream = switch (provider.getType()) {
-			case OLLAMA_LOCAL -> streamWithLocalFallback(executableModel, messages, temperature, maxTokens);
-			case OPENAI_COMPATIBLE -> openAiCompatibleChatClient.streamChat(executableModel, provider, messages, temperature, maxTokens);
+			// 本地 Ollama 分支负责把工具集合放进 OllamaOptions。
+			case OLLAMA_LOCAL -> streamWithLocalFallback(executableModel, messages, temperature, maxTokens, normalizedToolCallbacks, toolContext);
+			// OpenAI-compatible 客户端现在也支持流式工具调用：解析 tool_call 增量、回环执行、再继续流式回复。
+			case OPENAI_COMPATIBLE -> openAiCompatibleChatClient.streamChat(executableModel, provider, messages, temperature, maxTokens, normalizedToolCallbacks, toolContext);
 		};
 		return upstream
 				.doOnNext(response -> {
@@ -165,56 +200,70 @@ public class AiChatModelGatewayService {
 	 * <p>如果运行期发现 Ollama 端口不可用，会自动切到配置好的云端回退模型，
 	 * 避免把“connection refused”直接抛给上层业务。</p>
 	 */
-	private ChatResponse chatWithLocalFallback(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens) {
+	private ChatResponse chatWithLocalFallback(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, List<ToolCallback> toolCallbacks, Map<String, Object> toolContext) {
 		try {
-			return chatWithLocalOllama(model, messages, temperature, maxTokens);
+			return chatWithLocalOllama(model, messages, temperature, maxTokens, toolCallbacks, toolContext);
 		} catch (RuntimeException ex) {
 			AiModelDefinition fallbackModel = resolveFallbackModelAfterLocalFailure(model, ex);
 			if (fallbackModel == null) {
 				throw ex;
 			}
 			AiProviderProperties.Provider fallbackProvider = resolveProvider(fallbackModel.getProviderCode());
-			return openAiCompatibleChatClient.chat(fallbackModel, fallbackProvider, messages, temperature, maxTokens);
+			// 回退到云端时同样把工具集合和可信上下文带过去，避免“本地有工具、回退后无工具”的能力断层。
+			return openAiCompatibleChatClient.chat(fallbackModel, fallbackProvider, messages, temperature, maxTokens, toolCallbacks, toolContext);
 		}
 	}
 
 	/**
 	 * 本地模型的流式调用包装器。
 	 */
-	private Flux<ChatResponse> streamWithLocalFallback(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens) {
-		return Flux.defer(() -> streamWithLocalOllama(model, messages, temperature, maxTokens))
+	private Flux<ChatResponse> streamWithLocalFallback(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, List<ToolCallback> toolCallbacks, Map<String, Object> toolContext) {
+		return Flux.defer(() -> streamWithLocalOllama(model, messages, temperature, maxTokens, toolCallbacks, toolContext))
 				.onErrorResume(ex -> {
 					AiModelDefinition fallbackModel = resolveFallbackModelAfterLocalFailure(model, ex);
 					if (fallbackModel == null) {
 						return Flux.error(ex);
 					}
 					AiProviderProperties.Provider fallbackProvider = resolveProvider(fallbackModel.getProviderCode());
-					return openAiCompatibleChatClient.streamChat(fallbackModel, fallbackProvider, messages, temperature, maxTokens);
+					// 流式回退云端时同样保留工具能力与可信上下文。
+					return openAiCompatibleChatClient.streamChat(fallbackModel, fallbackProvider, messages, temperature, maxTokens, toolCallbacks, toolContext);
 				});
 	}
 
 	/**
 	 * 走本地 Ollama 的非流式调用。
 	 */
-	private ChatResponse chatWithLocalOllama(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens) {
+	private ChatResponse chatWithLocalOllama(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, List<ToolCallback> toolCallbacks, Map<String, Object> toolContext) {
 		OllamaChatModel ollamaChatModel = requireOllamaChatModel();
-		OllamaOptions options = OllamaOptions.create().withModel(model.getApiModelName());
+		OllamaOptions.Builder builder = OllamaOptions.builder().model(model.getApiModelName());
 		if (temperature != null) {
-			options = options.withTemperature(temperature);
+			builder.temperature(temperature);
 		}
 		if (maxTokens != null) {
-			options = options.withNumPredict(maxTokens);
+			builder.numPredict(maxTokens);
 		}
+		List<ToolCallback> normalizedToolCallbacks = toolCallbacks == null ? List.of() : toolCallbacks;
+		if (!normalizedToolCallbacks.isEmpty()) {
+			// toolCallbacks 告诉 Spring AI 当前 prompt 可以调用哪些工具。
+			builder.toolCallbacks(normalizedToolCallbacks);
+			// 开启内部工具执行后，Spring AI 会在模型发起 tool call 时自动调用 ToolCallback。
+			builder.internalToolExecutionEnabled(Boolean.TRUE);
+			// 可信上下文随工具调用一起下传，AuditingToolCallback 据此还原 userId/sessionId/messageId。
+			if (toolContext != null && !toolContext.isEmpty()) {
+				builder.toolContext(toolContext);
+			}
+		}
+		OllamaOptions options = builder.build();
 		Prompt prompt = new Prompt(messages, options);
 		var response = ollamaChatModel.call(prompt);
 		return ChatResponse.builder()
-				.content(response.getResult().getOutput().getContent())
+				.content(response.getResult().getOutput().getText())
 				.model(model.getModelCode())
 				.timestamp(System.currentTimeMillis())
 				.success(true)
 				.tokenUsage(ChatResponse.TokenUsage.builder()
 						.promptTokens(response.getMetadata().getUsage().getPromptTokens().intValue())
-						.completionTokens(response.getMetadata().getUsage().getGenerationTokens().intValue())
+						.completionTokens(response.getMetadata().getUsage().getCompletionTokens().intValue())
 						.cachedPromptTokens(0)
 						.totalTokens(response.getMetadata().getUsage().getTotalTokens().intValue())
 						.build())
@@ -224,19 +273,31 @@ public class AiChatModelGatewayService {
 	/**
 	 * 走本地 Ollama 的流式调用。
 	 */
-	private Flux<ChatResponse> streamWithLocalOllama(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens) {
+	private Flux<ChatResponse> streamWithLocalOllama(AiModelDefinition model, List<Message> messages, Double temperature, Integer maxTokens, List<ToolCallback> toolCallbacks, Map<String, Object> toolContext) {
 		OllamaChatModel ollamaChatModel = requireOllamaChatModel();
-		OllamaOptions options = OllamaOptions.create().withModel(model.getApiModelName());
+		OllamaOptions.Builder builder = OllamaOptions.builder().model(model.getApiModelName());
 		if (temperature != null) {
-			options = options.withTemperature(temperature);
+			builder.temperature(temperature);
 		}
 		if (maxTokens != null) {
-			options = options.withNumPredict(maxTokens);
+			builder.numPredict(maxTokens);
 		}
+		List<ToolCallback> normalizedToolCallbacks = toolCallbacks == null ? List.of() : toolCallbacks;
+		if (!normalizedToolCallbacks.isEmpty()) {
+			// 流式模式同样注入工具集合，保证非流式和流式能力一致。
+			builder.toolCallbacks(normalizedToolCallbacks);
+			// 让 Spring AI 负责执行工具调用并把结果继续交还给模型。
+			builder.internalToolExecutionEnabled(Boolean.TRUE);
+			// 流式工具调用同样需要可信上下文，否则审计日志与上下文工具会丢身份。
+			if (toolContext != null && !toolContext.isEmpty()) {
+				builder.toolContext(toolContext);
+			}
+		}
+		OllamaOptions options = builder.build();
 		Prompt prompt = new Prompt(messages, options);
 		return ollamaChatModel.stream(prompt)
 				.map(response -> ChatResponse.builder()
-						.content(response.getResult().getOutput().getContent())
+						.content(response.getResult().getOutput().getText())
 						.model(model.getModelCode())
 						.timestamp(System.currentTimeMillis())
 						.success(true)
@@ -244,7 +305,7 @@ public class AiChatModelGatewayService {
 								? null
 						: ChatResponse.TokenUsage.builder()
 								.promptTokens(response.getMetadata().getUsage().getPromptTokens().intValue())
-								.completionTokens(response.getMetadata().getUsage().getGenerationTokens().intValue())
+								.completionTokens(response.getMetadata().getUsage().getCompletionTokens().intValue())
 								.cachedPromptTokens(0)
 								.totalTokens(response.getMetadata().getUsage().getTotalTokens().intValue())
 								.build())
@@ -287,8 +348,8 @@ public class AiChatModelGatewayService {
 	 */
 	private ChatResponse.TokenUsage estimateUsage(List<Message> messages, String completion) {
 		int promptChars = messages == null ? 0 : messages.stream()
-				.filter(message -> message != null && message.getContent() != null)
-				.mapToInt(message -> message.getContent().length())
+				.filter(message -> message != null && message.getText() != null)
+				.mapToInt(message -> message.getText().length())
 				.sum();
 		int completionChars = completion == null ? 0 : completion.length();
 		int promptTokens = Math.max(1, promptChars / 2);
@@ -418,6 +479,46 @@ public class AiChatModelGatewayService {
 			throw new IllegalStateException("当前未初始化 OllamaChatModel，请检查 spring.ai.ollama 配置或直接使用云端 provider");
 		}
 		return ollamaChatModel;
+	}
+
+	private List<ToolCallback> normalizeToolCallbacks(ToolCallbackProvider toolCallbacks) {
+		if (toolCallbacks == null || toolCallbacks.getToolCallbacks() == null) {
+			// 没有工具时返回空列表，调用方就不会开启 internalToolExecutionEnabled。
+			return List.of();
+		}
+		// ToolCallbackProvider 暴露的是数组，这里转成 List 便于判空和交给 OllamaOptions。
+		return Arrays.asList(toolCallbacks.getToolCallbacks());
+	}
+
+	/**
+	 * 把平台内部调用上下文转换成工具可信上下文 Map。
+	 *
+	 * <p>模型只允许控制工具参数；userId / sessionId / messageId / query 这类安全敏感字段
+	 * 必须由后端通过 ToolContext 传入，再由 AuditingToolCallback 还原成
+	 * ToolExecutionContext 供内置工具读取。这里只放入有值的字段，避免污染上下文。</p>
+	 *
+	 * @param context 已补齐的安全调用上下文
+	 * @return 工具上下文 Map，可能为空
+	 */
+	private Map<String, Object> buildToolContext(AiCallContext context) {
+		Map<String, Object> toolContext = new LinkedHashMap<>();
+		if (context == null) {
+			return toolContext;
+		}
+		if (StringUtils.hasText(context.getUserId())) {
+			toolContext.put("userId", context.getUserId());
+		}
+		if (StringUtils.hasText(context.getSessionId())) {
+			toolContext.put("sessionId", context.getSessionId());
+		}
+		if (context.getChatId() != null) {
+			// 工具审计/上下文统一用 messageId 表示触发本次调用的用户消息 ID。
+			toolContext.put("messageId", context.getChatId());
+		}
+		if (StringUtils.hasText(context.getQuery())) {
+			toolContext.put("query", context.getQuery());
+		}
+		return toolContext;
 	}
 
 	/**

@@ -21,7 +21,7 @@ import io.milvus.param.index.CreateIndexParam;
 import io.milvus.param.index.DescribeIndexParam;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.ai.autoconfigure.vectorstore.milvus.MilvusVectorStoreProperties;
+import org.springframework.ai.vectorstore.milvus.autoconfigure.MilvusVectorStoreProperties;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.stereotype.Repository;

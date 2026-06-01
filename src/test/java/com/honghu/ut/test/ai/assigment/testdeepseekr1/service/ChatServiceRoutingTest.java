@@ -11,6 +11,7 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatMessageRepo
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.core.SkillResolverService;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,6 +50,10 @@ class ChatServiceRoutingTest {
     @Mock
     private AiChatModelGatewayService aiChatModelGatewayService;
     @Mock
+    private SkillResolverService skillResolverService;
+    @Mock
+    private com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.builtin.claude.SkillPromptResolver skillPromptResolver;
+    @Mock
     private ConnectionHealthChecker connectionHealthChecker;
 
     private ChatService chatService;
@@ -70,6 +75,8 @@ class ChatServiceRoutingTest {
                 ragRetrievalService,
                 aiModelAccessService,
                 aiChatModelGatewayService,
+                skillResolverService,
+                skillPromptResolver,
                 aiProviderProperties,
                 connectionHealthChecker
         );

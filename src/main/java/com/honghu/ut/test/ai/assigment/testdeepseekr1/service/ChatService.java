@@ -20,6 +20,8 @@ import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.RagDocumentRepo
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.ChatSessionRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.util.ConnectionHealthChecker;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.builtin.claude.SkillPromptResolver;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.core.SkillResolverService;
 import com.knuddels.jtokkit.Encodings;
 import com.knuddels.jtokkit.api.Encoding;
 import com.knuddels.jtokkit.api.EncodingRegistry;
@@ -34,6 +36,7 @@ import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.SystemPromptTemplate;
+import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -67,6 +70,8 @@ public class ChatService {
     private final RagRetrievalService ragRetrievalService;
     private final AiModelAccessService aiModelAccessService;
     private final AiChatModelGatewayService aiChatModelGatewayService;
+    private final SkillResolverService skillResolverService;
+    private final SkillPromptResolver skillPromptResolver;
     private final AiProviderProperties aiProviderProperties;
     private final ConnectionHealthChecker connectionHealthChecker;
 
@@ -104,7 +109,10 @@ public class ChatService {
             AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(message).orElse(null);
             String systemPrompt = resolveSystemPrompt(null, taskKeywordMatch);
             AiModelDefinition model = resolveChatModelDefinition(null, null, message, taskKeywordMatch);
-            return aiChatModelGatewayService.chat(model, List.of(new SystemMessage(systemPrompt), new UserMessage(message)), null, null);
+            // 简单聊天没有用户和会话上下文，因此只解析“游客可用 + 默认启用 + 必装”的工具集合。
+            ToolCallbackProvider toolCallbacks = skillResolverService.resolveToolCallbacksForSession(null, null);
+            // 把工具集合交给模型网关；当前只有本地 Ollama 分支会真正启用 Spring AI tool calling。
+            return aiChatModelGatewayService.chat(model, List.of(new SystemMessage(systemPrompt), new UserMessage(message)), null, null, buildCallContext(null, null, "simple-chat"), toolCallbacks);
         } catch (Exception e) {
             log.warn("简单聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
 
@@ -168,6 +176,8 @@ public class ChatService {
             // request.systemMessage > taskType 对应默认提示词 > 全局默认提示词。
             // 这样提示词选择与后续模型路由解耦，不会出现“根据最终模型反推 prompt”的耦合问题。
             String systemPrompt = resolveSystemPrompt(request.getSystemMessage(), taskKeywordMatch);
+            // 把当前会话启用的 Claude Skills 指导追加到系统提示词（第四类技能：提示词运行时能力）。
+            systemPrompt = appendClaudeSkillPrompts(systemPrompt, request.getUserId(), request.getSessionId());
             List<Message> messages = new ArrayList<>();
             messages.add(new SystemPromptTemplate(systemPrompt).createMessage());
 
@@ -180,7 +190,10 @@ public class ChatService {
             }
             messages.add(new UserMessage(request.getMessage()));
 
-            return aiChatModelGatewayService.chat(modelDefinition, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, null, "structured-chat"));
+            // 非流式结构化聊天也按 userId + sessionId 解析会话级技能，保证和流式聊天行为一致。
+            ToolCallbackProvider toolCallbacks = skillResolverService.resolveToolCallbacksForSession(request.getUserId(), request.getSessionId());
+            // 这里传入 toolCallbacks 后，模型在回答过程中就可以调用当前会话启用的内置工具。
+            return aiChatModelGatewayService.chat(modelDefinition, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, null, "structured-chat"), toolCallbacks);
 
         } catch (Exception e) {
             rethrowPolicyException(e);
@@ -315,6 +328,8 @@ public class ChatService {
         history = mergeHistoryWithMessage(history, userMsg);
         // 这里先统一解析 system prompt，后面 token 预算计算和 Prompt 组装都必须基于同一份最终提示词。
         String systemPrompt = resolveSystemPrompt(request.getSystemMessage(), taskKeywordMatch);
+        // 在 token 预算计算之前就追加 Claude Skills 指导，保证预算与最终注入模型的提示词一致。
+        systemPrompt = appendClaudeSkillPrompts(systemPrompt, userId, finalSessionId);
         // 第二层中期记忆：优先从 Redis 读取“用户主体画像 + 当前会话摘要”两个高浓度 SystemMessage。
         // 这里先只读，不立即触发后台压缩。
         // 原因：本轮请求稍后还会落库 assistant 消息，如果现在就触发一次、完成后再触发一次，会造成重复摘要计算。
@@ -418,7 +433,10 @@ public class ChatService {
             log.info("Prompt 组装完成：sessionId={}, systemPromptTokens≈{}, memorySystemMessages={}, ragTokens≈{}, historyMessages={}", request.getSessionId(), encoding.countTokens(resolvedSystemPrompt), memorySystemPrompts.size(), ragTokens, history.size());
 
             // 使用流式响应日志记录器（可配置）
-            return logStreamingResponse(aiChatModelGatewayService.streamChat(selectedModel, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, chatId, "structured-stream")));
+            // 流式聊天是主路径，因此这里按当前用户和会话动态注入已启用技能，避免把全部工具塞进上下文导致 context 膨胀。
+            ToolCallbackProvider toolCallbacks = skillResolverService.resolveToolCallbacksForSession(request.getUserId(), request.getSessionId());
+            // chatId 写入调用上下文，工具日志可以关联到触发本次调用的用户消息。
+            return logStreamingResponse(aiChatModelGatewayService.streamChat(selectedModel, messages, request.getTemperature(), request.getMaxTokens(), buildCallContext(request, chatId, "structured-stream"), toolCallbacks));
         }).onErrorResume(e -> {
             if (e instanceof QuotaExceededException || e instanceof PricingNotConfiguredException) {
                 return Flux.error(e);
@@ -454,7 +472,10 @@ public class ChatService {
             AiTaskKeywordService.TaskKeywordMatch taskKeywordMatch = resolveTaskKeywordMatch(message).orElse(null);
             String systemPrompt = resolveSystemPrompt(null, taskKeywordMatch);
             AiModelDefinition model = resolveChatModelDefinition(null, null, message, taskKeywordMatch);
-            return aiChatModelGatewayService.streamChat(model, List.of(new SystemMessage(systemPrompt), new UserMessage(message)), null, null).map(ChatResponse::getContent);
+            // 简单流式聊天同样走默认工具解析，确保“时间/计算器”等必装工具在无会话场景也可用。
+            ToolCallbackProvider toolCallbacks = skillResolverService.resolveToolCallbacksForSession(null, null);
+            // 最终只向上层暴露 content 字符串流，工具调用细节由模型网关和 ToolExecutorService 内部处理。
+            return aiChatModelGatewayService.streamChat(model, List.of(new SystemMessage(systemPrompt), new UserMessage(message)), null, null, buildCallContext(null, null, "simple-stream"), toolCallbacks).map(ChatResponse::getContent);
         }).onErrorResume(e -> {
             log.warn("简单流式聊天处理失败 (剩余重试次数: {}): {}", remainingRetries, e.getMessage());
             if (e instanceof Exception exception && isConnectionException(exception) && remainingRetries > 0) {
@@ -489,6 +510,7 @@ public class ChatService {
                 .sessionId(request == null ? null : request.getSessionId())
                 .chatId(chatId)
                 .source(source)
+                .query(request == null ? null : request.getMessage())
                 .build();
     }
 
@@ -529,6 +551,30 @@ public class ChatService {
             }
         }
         return defaultSystemPromptProvider.getPrompt();
+    }
+
+    /**
+     * 把当前会话启用的 Claude Skills 指导追加到系统提示词。
+     *
+     * <p>Claude Skills 是第四类技能，本身不产生工具，而是“提示词运行时能力”。
+     * 当某个会话启用了 CLAUDE_SKILL 时，这里把它的指导块拼接到 system prompt 末尾，
+     * 让模型在本轮对话遵循该技能（写作、数据分析等）的约束。会话没有启用任何 Claude Skill，
+     * 或解析失败时，原样返回基础提示词，绝不影响主链路。</p>
+     *
+     * @param basePrompt 路由阶段确定的基础系统提示词
+     * @param userId 可信用户 ID，可为空
+     * @param sessionId 当前会话 ID，可为空
+     * @return 追加技能指导后的系统提示词
+     */
+    private String appendClaudeSkillPrompts(String basePrompt, String userId, String sessionId) {
+        try {
+            User.UserRole role = skillResolverService.currentRole(userId);
+            java.util.Set<Long> enabledSkillIds = skillResolverService.computeEnabledSkillIds(userId, sessionId, role);
+            return skillPromptResolver.appendSkillPrompts(basePrompt, enabledSkillIds, role);
+        } catch (Exception ex) {
+            log.warn("追加 Claude Skill 提示词失败，已回退基础提示词: {}", ex.getMessage());
+            return basePrompt;
+        }
     }
 
     private java.util.Optional<AiTaskKeywordService.TaskKeywordMatch> resolveTaskKeywordMatch(String question) {
