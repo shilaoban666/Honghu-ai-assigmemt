@@ -24,6 +24,22 @@ public enum SkillSource {
      */
     MCP,
     /**
+     * Claude Skills 兼容技能。
+     *
+     * <p>这类能力的核心不是一个远程服务，而是一套 {@code SKILL.md} 目录语义：
+     * frontmatter 描述技能，正文教模型怎么做事，{@code resources/} 提供参考资料，
+     * {@code scripts/} 提供可选脚本。当前阶段只把它作为 prompt 型目录项展示和开关；
+     * 后续接入 {@code SkillPromptResolver} 后，才会把启用的 skill 注入系统提示。</p>
+     */
+    CLAUDE_SKILL,
+    /**
+     * 受控 CLI 能力。
+     *
+     * <p>CLI 不是“浏览器直接执行 shell”。它必须经过后端白名单、权限策略、审批流、沙箱和审计。
+     * 当前阶段只把精选命令行能力写入目录并支持安装/会话开关；真正执行器和沙箱在后续阶段补齐。</p>
+     */
+    CLI,
+    /**
      * 自定义技能。
      *
      * <p>由用户上传 OpenAPI Schema 或配置自定义 HTTP 工具生成。后续

@@ -10,6 +10,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 /**
  * 会话级技能开关实体，对应数据库 {@code session_skill_setting} 表。
  *
@@ -41,4 +43,8 @@ public class SessionSkillSetting {
     // 当前会话是否启用该技能；false 表示用户在这个会话里明确关掉过。
     @Column(name = "enabled")
     private boolean enabled;
+
+    // 该能力在本会话被启用的时间；用于前端「启用于 X」提示。关闭时置空。
+    @Column(name = "enabled_at")
+    private LocalDateTime enabledAt;
 }

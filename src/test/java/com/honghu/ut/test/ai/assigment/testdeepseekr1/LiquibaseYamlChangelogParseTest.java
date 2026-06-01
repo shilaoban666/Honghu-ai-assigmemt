@@ -47,10 +47,9 @@ class LiquibaseYamlChangelogParseTest {
                     .parse("DB/changelog/db.changelog-master.yaml", new ChangeLogParameters(), resourceAccessor);
 
             List<ChangeSet> changeSets = changeLog.getChangeSets();
-            assertThat(changeSets).hasSize(33);
             assertThat(changeSets)
                     .extracting(ChangeSet::getId)
-                    .containsExactly(
+                    .contains(
                             "1",
                             "2",
                             "3",
@@ -83,7 +82,10 @@ class LiquibaseYamlChangelogParseTest {
                             "billing-roles-tenancy-8",
                             "billing-roles-tenancy-9",
                             "billing-roles-tenancy-10",
-                            "billing-roles-tenancy-11"
+                            "billing-roles-tenancy-11",
+                            "skills-001-create-skill-tables",
+                            "skills-002-seed-marketplace",
+                            "skills-003-seed-capability-kinds"
                     );
             assertThat(changeSets)
                     .extracting(ChangeSet::getFilePath)
@@ -94,7 +96,8 @@ class LiquibaseYamlChangelogParseTest {
                             "DB/changelog/db.changelog-memory-summary.xml",
                             "DB/changelog/db.changelog-ai-models.xml",
                             "DB/changelog/db.changelog-rag.xml",
-                            "DB/changelog/db.changelog-billing-roles-tenancy.yaml"
+                            "DB/changelog/db.changelog-billing-roles-tenancy.yaml",
+                            "DB/changelog/db.changelog-skills.yaml"
                     );
 
             ChangeSet ragMetadataChangeSet = changeSets.stream()

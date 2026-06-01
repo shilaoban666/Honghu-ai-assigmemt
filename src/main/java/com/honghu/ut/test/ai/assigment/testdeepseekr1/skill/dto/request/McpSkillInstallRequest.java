@@ -1,4 +1,4 @@
-package com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.dto;
+package com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.dto.request;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 

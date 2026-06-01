@@ -13,6 +13,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnTransformer;
 
 /**
  * 技能下的具体工具定义，对应数据库 {@code skill_tool} 表。
@@ -55,6 +56,7 @@ public class SkillTool {
 
     // JSON Schema 字符串，描述工具参数类型、必填项和参数说明。
     @Column(name = "parameters_schema", columnDefinition = "jsonb")
+    @ColumnTransformer(write = "?::jsonb")
     private String parametersSchema;
 
     // 风险等级，后续用于危险工具二次确认和权限拦截。

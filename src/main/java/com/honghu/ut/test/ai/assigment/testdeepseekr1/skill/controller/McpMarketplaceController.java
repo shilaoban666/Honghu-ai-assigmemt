@@ -1,9 +1,9 @@
-package com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.api;
+package com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.controller;
 
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.dto.McpMarketplaceItemDto;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.dto.McpMarketplacePageDto;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.dto.McpSkillInstallRequest;
-import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.mcp.marketplace.McpMarketplaceService;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.dto.request.McpSkillInstallRequest;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.builtin.mcp.McpMarketplaceService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;

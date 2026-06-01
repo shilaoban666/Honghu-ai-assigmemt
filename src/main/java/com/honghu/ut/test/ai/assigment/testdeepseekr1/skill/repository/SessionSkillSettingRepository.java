@@ -19,4 +19,7 @@ public interface SessionSkillSettingRepository extends JpaRepository<SessionSkil
 
     // 重置某个会话的技能开关时使用，先删旧设置再批量写入新设置。
     void deleteBySessionId(String sessionId);
+
+    // 卸载某个能力或清理单个会话开关时使用，只删除“这个会话 + 这个技能”的一条显式设置。
+    void deleteBySessionIdAndSkillId(String sessionId, Long skillId);
 }

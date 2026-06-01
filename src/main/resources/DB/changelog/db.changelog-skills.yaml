@@ -382,6 +382,60 @@ databaseChangeLog:
                   # 自定义鉴权配置，例如 header 名、token 引用方式等。
                   name: "auth_config"
                   type: "JSONB"
+  # session_tool_approval 是“高风险工具会话级二次确认表”。
+  #
+  # ToolGuard 对 DANGEROUS 工具（当前主要是 CLI 工具）默认拒绝执行，
+  # 只有当前会话存在一条仍然有效（未过期）的审批记录时才放行。
+  # 这张表必须随技能模块一起建好，否则 SessionToolApproval 实体在
+  # ddl-auto=validate 下会因为找不到表而导致应用上下文启动失败。
+  - changeSet:
+      id: "skills-004-create-session-tool-approval"
+      author: "claude"
+      changes:
+        - createTable:
+            tableName: "session_tool_approval"
+            columns:
+              - column:
+                  # 自增主键。
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  # 授予审批的会话 ID，和 chat_session.session_id 类型保持一致。
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 被批准的全局工具名，例如 cli__git__run。
+                  name: "tool_qualified_name"
+                  type: "VARCHAR(300)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 授权人；后续接入二次确认 UI / 管理后台后写入。
+                  name: "approved_by"
+                  type: "VARCHAR(64)"
+              - column:
+                  # 可选过期时间；为空表示一直有效直到被显式删除。
+                  name: "expires_at"
+                  type: "TIMESTAMP"
+              - column:
+                  # 创建时间，用于审计和排查。
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - createIndex:
+            # ToolGuard 校验时按 (session_id, tool_qualified_name) 精确命中审批记录。
+            indexName: "idx_session_tool_approval_lookup"
+            tableName: "session_tool_approval"
+            columns:
+              - column:
+                  name: "session_id"
+              - column:
+                  name: "tool_qualified_name"
   # 技能商店初始数据。
   #
   # 内置技能会在应用启动时由 BuiltinSkillRegistrar 再同步 tool 列表；
@@ -423,4 +477,108 @@ databaseChangeLog:
                 category = EXCLUDED.category,
                 icon_url = EXCLUDED.icon_url,
                 required_role = EXCLUDED.required_role,
+                updated_at = CURRENT_TIMESTAMP;
+
+  - changeSet:
+      id: "skills-003-seed-capability-kinds"
+      author: "codex"
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              INSERT INTO skill (
+                skill_key, source, display_name, description, default_enabled, mandatory,
+                category, icon_url, required_role, version, author, repo_url, license,
+                rating, downloads, mcp_transport, mcp_endpoint, mcp_install_cmd, enabled
+              )
+              VALUES
+                ('skill:document-writer', 'CLAUDE_SKILL', 'Document Writer Skill', '将写作、改写、提纲和长文档整理工作注入模型提示上下文。', false, false, 'writing', '技', 'USER', 'v1', 'Community', 'https://github.com/anthropics/skills', 'MIT', 4.6, 18000, null, null, null, true),
+                ('skill:data-analysis', 'CLAUDE_SKILL', 'Data Analysis Skill', '指导模型完成表格理解、指标解释、轻量分析和结果摘要。', false, false, 'analysis', '数', 'USER', 'v1', 'Community', 'https://github.com/anthropics/skills', 'MIT', 4.7, 22000, null, null, null, true),
+                ('cli:git', 'CLI', 'Git CLI', '受控读取 Git 状态、差异摘要和提交辅助信息。', false, false, 'developer', 'git', 'USER', 'v1', 'Local', null, 'local', 4.8, 0, null, null, 'git', true),
+                ('cli:npm', 'CLI', 'npm scripts', '受控列出和运行前端 npm 脚本，用于构建、测试和诊断。', false, false, 'developer', 'npm', 'USER', 'v1', 'Local', null, 'local', 4.6, 0, null, null, 'npm', true)
+              ON CONFLICT (skill_key) DO UPDATE SET
+                source = EXCLUDED.source,
+                display_name = EXCLUDED.display_name,
+                description = EXCLUDED.description,
+                default_enabled = EXCLUDED.default_enabled,
+                mandatory = EXCLUDED.mandatory,
+                category = EXCLUDED.category,
+                icon_url = EXCLUDED.icon_url,
+                required_role = EXCLUDED.required_role,
+                version = EXCLUDED.version,
+                author = EXCLUDED.author,
+                repo_url = EXCLUDED.repo_url,
+                license = EXCLUDED.license,
+                rating = EXCLUDED.rating,
+                downloads = EXCLUDED.downloads,
+                mcp_install_cmd = EXCLUDED.mcp_install_cmd,
+                enabled = EXCLUDED.enabled,
+                updated_at = CURRENT_TIMESTAMP;
+
+  # 技能描述本地化列。
+  #
+  # 全网爬取的 MCP / Claude Skill 描述是英文原文（registry/GitHub 作者所写）。
+  # description 始终保存英文原文（便于变更检测与重译），description_zh 保存爬取时
+  # 由 LLM 翻译出的中文。展示层优先使用 description_zh，没有时回退英文原文。
+  - changeSet:
+      id: "skills-005-add-description-zh"
+      author: "claude"
+      changes:
+        - addColumn:
+            tableName: "skill"
+            columns:
+              - column:
+                  # 中文翻译后的描述；内置/已是中文的技能可为空（展示层会回退 description）。
+                  name: "description_zh"
+                  type: "TEXT"
+
+  # 会话技能启用时间。
+  #
+  # 记录用户在某个会话「启用」某能力的时间，供前端在胶囊菜单/我的商店里
+  # 鼠标悬停时展示「启用于 X」。关闭时清空。
+  - changeSet:
+      id: "skills-006-add-session-enabled-at"
+      author: "claude"
+      changes:
+        - addColumn:
+            tableName: "session_skill_setting"
+            columns:
+              - column:
+                  name: "enabled_at"
+                  type: "TIMESTAMP"
+
+  # 国内 Claude 技能（精选）。
+  #
+  # Claude Skills 是 Anthropic 的提示词技能格式，没有「国内技能 registry」可爬，
+  # 所以这里精选若干高质量中文提示词技能直接入库，让技能商店的「技能」分类里也有国内内容。
+  # 描述本身就是中文，展示层会直接使用（无需翻译）。
+  - changeSet:
+      id: "skills-007-seed-cn-skills"
+      author: "claude"
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              INSERT INTO skill (
+                skill_key, source, display_name, description, default_enabled, mandatory,
+                category, icon_url, required_role, version, author, license, enabled
+              )
+              VALUES
+                ('skill:cn-writing', 'CLAUDE_SKILL', '中文写作', '高质量中文写作、改写、扩写、缩写与润色；明确受众与目的，结构清晰、表达地道。', false, false, 'Claude Skills', '写', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-xiaohongshu', 'CLAUDE_SKILL', '小红书文案', '生成符合小红书风格的标题与正文，含 emoji、分点和话题标签，突出种草感。', false, false, 'Claude Skills', '书', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-weekly-report', 'CLAUDE_SKILL', '周报助手', '把零散的工作记录整理成结构化中文周报：已完成、进行中、计划与风险。', false, false, 'Claude Skills', '报', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-contract-review', 'CLAUDE_SKILL', '合同审查', '审阅中文合同，定位权责、违约、付款等风险条款，并给出修改建议。', false, false, 'Claude Skills', '约', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-translation', 'CLAUDE_SKILL', '中英互译', '中英文之间的专业、地道翻译，保留术语与语气，标注不确定处。', false, false, 'Claude Skills', '译', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-marketing', 'CLAUDE_SKILL', '营销文案', '中文广告语、电商详情页、活动与公众号推文创作，强调卖点与转化。', false, false, 'Claude Skills', '销', 'USER', 'v1', '社区', 'MIT', true)
+              ON CONFLICT (skill_key) DO UPDATE SET
+                source = EXCLUDED.source,
+                display_name = EXCLUDED.display_name,
+                description = EXCLUDED.description,
+                category = EXCLUDED.category,
+                icon_url = EXCLUDED.icon_url,
+                required_role = EXCLUDED.required_role,
+                version = EXCLUDED.version,
+                author = EXCLUDED.author,
+                license = EXCLUDED.license,
+                enabled = EXCLUDED.enabled,
                 updated_at = CURRENT_TIMESTAMP;

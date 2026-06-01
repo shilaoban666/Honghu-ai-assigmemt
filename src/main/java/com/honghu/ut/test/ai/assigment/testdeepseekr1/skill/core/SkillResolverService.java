@@ -5,21 +5,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.entity.User;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.repository.UserRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.builtin.BuiltinSkillProvider;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.builtin.cli.CliSkillProvider;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.entity.SessionSkillSetting;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.entity.Skill;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.builtin.mcp.McpSkillProvider;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.repository.SessionSkillSettingRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.repository.SkillRepository;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.repository.ToolInvocationLogRepository;
 import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.repository.UserSkillInstallRepository;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.security.SkillAccessPolicy;
+import com.honghu.ut.test.ai.assigment.testdeepseekr1.skill.security.ToolGuard;
+import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.function.FunctionToolCallback;
-import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
-import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -27,199 +30,241 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 会话工具集解析服务。
+ * 为某个用户/会话解析最终“模型可见工具集”。
  *
- * <p>模型每轮对话可以使用哪些工具，不能只看全局技能列表，还需要综合用户角色、必装技能、
- * 新会话默认启用项、用户已安装技能以及当前会话的显式开关。这个服务集中实现这些规则，
- * 并把最终技能集合转换为 Spring AI 可注入的 {@link ToolCallbackProvider}。</p>
+ * <p>本服务负责策略计算，不负责工具具体执行。它会把必装技能、会话级显式开关、默认启用技能和用户已安装技能
+ * 合并成最终启用的 {@link Skill} 集合，然后按来源分发给不同 provider。每个 provider 返回
+ * {@link ToolCallbackRegistration}，本解析器再统一包上 {@link AuditingToolCallback}。这个装饰器就是
+ * BUILTIN、MCP、CLI 工具共同的审计和风险控制边界。</p>
  *
- * <p>当前实现已经接入内置技能的解析链路：{@link Skill} 元数据来自数据库，
- * {@code BuiltinSkillProvider} 把 BUILTIN 类型技能转换为 {@link ResolvedTool}，
- * {@link ToolExecutorService} 负责真正执行并落审计日志。MCP 和 CUSTOM 来源后续可以按相同模式
- * 增加 provider，而不需要改变会话规则计算逻辑。</p>
+ * <p>解析顺序有意义：先解析内置工具，因为 time/math/RAG 等运行时辅助能力应该稳定存在；再解析远程 MCP；
+ * 最后解析 CLI，因为 CLI 工具危险等级高，通常会被审批守卫拒绝到用户确认后才执行。</p>
  */
 @Service
 @RequiredArgsConstructor
 public class SkillResolverService {
-    // 技能定义表，负责读取 skill 的来源、默认启用、必装、权限等元数据。
+
+    /** 全局技能目录。 */
     private final SkillRepository skillRepository;
-    // 用户安装表，负责读取某个用户额外安装并启用的 MCP/CUSTOM/内置技能。
+
+    /** 用户安装表，用于读取已安装技能和用户级运行配置。 */
     private final UserSkillInstallRepository userSkillInstallRepository;
-    // 会话级开关表，负责读取“当前会话显式启用了哪些技能”。
+
+    /** 会话覆盖表，用于读取某个会话里的显式开关。 */
     private final SessionSkillSettingRepository sessionSkillSettingRepository;
-    // 用户表，用来把 userId 解析成角色，后续按角色过滤技能。
+
+    /** 用户仓库，用于根据可信 userId 读取角色。 */
     private final UserRepository userRepository;
-    // 内置技能 Provider，负责把 BUILTIN 类型的 skill 转成可执行的 ResolvedTool。
+
+    /** 共享角色阶梯策略。 */
+    private final SkillAccessPolicy skillAccessPolicy;
+
+    /** 内置 Java 反射工具 provider。 */
     private final BuiltinSkillProvider builtinSkillProvider;
-    // 工具执行服务，真正通过反射调用 Java 方法并落调用日志。
+
+    /** 远程 HTTP JSON-RPC MCP provider。 */
+    private final McpSkillProvider mcpSkillProvider;
+
+    /** 本地白名单 CLI provider。 */
+    private final CliSkillProvider cliSkillProvider;
+
+    /** 内置 Java 工具反射执行器。 */
     private final ToolExecutorService toolExecutorService;
-    // Jackson 用来把模型传来的 Map 参数序列化成 JSON，再交给统一执行器解析。
+
+    /** 由审计装饰器调用的危险等级守卫。 */
+    private final ToolGuard toolGuard;
+
+    /** 审计装饰器写调用日志时使用的仓库。 */
+    private final ToolInvocationLogRepository toolInvocationLogRepository;
+
+    /** 工具参数序列化和审计参数规范化共用的 JSON 工具。 */
     private final ObjectMapper objectMapper;
 
     /**
-     * 解析某个用户在某个会话中可用的运行时工具列表。
+     * 解析可执行的内置 Java 工具。
      *
-     * @param userId 当前用户 ID，允许为空；为空或无效时按访客权限处理
-     * @param sessionId 当前会话 ID，允许为空；为空时不会应用会话级显式开关
-     * @return 已绑定执行对象的工具列表
+     * <p>这个方法主要为了兼容旧测试或直接检查内置工具的调用方。完整运行时应优先使用
+     * {@link #resolveToolCallbacksForSession(String, String)}，因为 MCP 和 CLI provider 返回的是
+     * callback，而不是 {@link ResolvedTool}。</p>
+     *
+     * @param userId 可信用户 id 或开发兜底用户 id
+     * @param sessionId 聊天会话 id
+     * @return 已解析的内置 Java 工具
      */
     public List<ResolvedTool> resolveToolsForSession(String userId, String sessionId) {
-        // 先根据 userId 得到当前调用者角色；游客或查不到用户时会降级为 GUEST。
+        // 先根据 userId 得到角色，后续所有默认/必装技能查询都要按角色过滤。
         User.UserRole role = currentRole(userId);
-        // 再按“必装 + 会话显式设置 + 默认启用 + 用户安装”规则算出本轮允许注入的 skillId。
+        // 计算当前用户/会话最终启用的 skillId。
         Set<Long> enabledSkillIds = computeEnabledSkillIds(userId, sessionId, role);
         if (enabledSkillIds.isEmpty()) {
-            // 没有任何技能时直接返回空列表，避免后面做无意义的数据库和 Provider 分发。
+            // 没有启用技能时直接返回空列表。
             return List.of();
         }
-        // 根据 id 批量读取技能定义；这里拿到的是完整 Skill 对象，后续要按 source 分发。
-        List<Skill> skills = skillRepository.findAllById(enabledSkillIds);
-        Map<SkillSource, List<Skill>> bySource = skills.stream()
-                // enabled=false 是管理员级全局下线，哪怕会话启用了也不能注入给模型。
-                .filter(Skill::isEnabled)
-                .collect(Collectors.groupingBy(Skill::getSource));
-        List<ResolvedTool> tools = new ArrayList<>();
-        // 当前阶段先接 BUILTIN；MCP/CUSTOM Provider 后续补齐时按同样模式追加到 tools。
-        tools.addAll(builtinSkillProvider.toolsFor(bySource.getOrDefault(SkillSource.BUILTIN, List.of())));
-        return tools;
+        // 按来源分组；这里只取 BUILTIN。
+        Map<SkillSource, List<Skill>> bySource = enabledSkillsBySource(enabledSkillIds);
+        return builtinSkillProvider.toolsFor(bySource.getOrDefault(SkillSource.BUILTIN, List.of()));
     }
 
     /**
-     * 解析并包装为 Spring AI 可以直接注入 ChatModel 的工具回调提供器。
+     * 解析所有应该注入给模型的工具 callback。
      *
-     * @param userId 当前用户 ID
-     * @param sessionId 当前会话 ID
-     * @return Spring AI 工具回调提供器；没有工具时返回空 provider
+     * @param userId 可信用户 id 或开发兜底用户 id
+     * @param sessionId 聊天会话 id
+     * @return 包含审计装饰器 callback 的 Spring AI ToolCallbackProvider
      */
     public ToolCallbackProvider resolveToolCallbacksForSession(String userId, String sessionId) {
-        // Spring AI 最终需要 ToolCallbackProvider，所以这里把内部 ResolvedTool 统一包装成 FunctionToolCallback。
-        return ToolCallbackProvider.from(
-                resolveToolsForSession(userId, sessionId).stream()
-                        .map(this::toFunctionCallback)
-                        .toList());
+        // 角色决定哪些 requiredRole 的技能能被当前用户使用。
+        User.UserRole role = currentRole(userId);
+        // 计算最终启用 skillId，逻辑和前端 CapabilityService 复用同一个方法。
+        Set<Long> enabledSkillIds = computeEnabledSkillIds(userId, sessionId, role);
+        if (enabledSkillIds.isEmpty()) {
+            // Spring AI 接受空 provider，表示本轮不注入任何工具。
+            return ToolCallbackProvider.from(List.of());
+        }
+
+        // 按来源分发给不同 provider。
+        Map<SkillSource, List<Skill>> bySource = enabledSkillsBySource(enabledSkillIds);
+        List<ToolCallbackRegistration> registrations = new ArrayList<>();
+        // BUILTIN 先解析为 ResolvedTool，再包装成 Spring AI FunctionToolCallback。
+        registrations.addAll(builtinSkillProvider.toolsFor(bySource.getOrDefault(SkillSource.BUILTIN, List.of()))
+                .stream()
+                .map(this::toBuiltinRegistration)
+                .toList());
+        // MCP provider 会根据用户安装配置去远程 tools/list，并生成 callback。
+        registrations.addAll(mcpSkillProvider.callbacksFor(bySource.getOrDefault(SkillSource.MCP, List.of()), userId));
+        // CLI provider 只生成危险工具 callback，后续 ToolGuard 默认拦截。
+        registrations.addAll(cliSkillProvider.callbacksFor(bySource.getOrDefault(SkillSource.CLI, List.of())));
+
+        // 所有来源的 callback 都统一包 AuditingToolCallback，确保审计和风险守卫一致。
+        List<ToolCallback> auditedCallbacks = registrations.stream()
+                .map(registration -> new AuditingToolCallback(registration, toolGuard, toolInvocationLogRepository, objectMapper))
+                .map(ToolCallback.class::cast)
+                .toList();
+        return ToolCallbackProvider.from(auditedCallbacks);
     }
 
     /**
-     * 根据会话规则计算最终启用的技能 ID 集合。
+     * 计算某个会话最终启用的 skillId 集合。
      *
-     * <p>优先级为：必装技能始终补回；如果会话已有显式设置，则以会话设置为准；
-     * 否则使用角色允许范围内的默认启用技能，并合并用户已安装且启用的技能。</p>
+     * <p>优先级：mandatory 技能永远加入；如果会话存在显式设置，则以会话设置为准，再把 mandatory 补回；
+     * 如果会话没有显式设置，则合并 defaultEnabled 技能和用户已安装技能，最后再补 mandatory。</p>
      *
-     * @param userId 当前用户 ID，用于读取用户安装关系
-     * @param sessionId 当前会话 ID，用于读取会话级开关
-     * @param role 当前用户角色
-     * @return 最终应注入的技能 ID 集合
+     * @param userId 当前用户 id
+     * @param sessionId 当前会话 id
+     * @param role 当前可信角色
+     * @return 最终启用的 skillId 集合
      */
     public Set<Long> computeEnabledSkillIds(String userId, String sessionId, User.UserRole role) {
-        // mandatory 是硬规则：只要角色允许且技能全局启用，就必须进入工具集，前端也不应该允许关闭。
-        Set<Long> mandatory = new HashSet<>(skillRepository.findMandatoryEnabledIds(allowedRoles(role)));
+        // 先查询当前角色可用的 mandatory 技能，它们后续无论如何都会加入。
+        Set<Long> mandatory = new HashSet<>(skillRepository.findMandatoryEnabledIds(skillAccessPolicy.allowedRequiredRoles(role)));
         if (sessionId != null && !sessionId.isBlank()) {
-            // 如果当前会话已经保存过显式设置，则以会话设置为准，避免默认技能在老会话中反复“自动冒出来”。
+            // 会话有 id 时才可能存在显式开关记录。
             List<SessionSkillSetting> settings = sessionSkillSettingRepository.findBySessionId(sessionId);
             if (!settings.isEmpty()) {
+                // 一旦存在任意会话设置，就把该会话视为有“显式快照”。
                 Set<Long> explicit = settings.stream()
-                        // 只收集 enabled=true 的记录；enabled=false 表示用户在当前会话明确关闭过。
+                        // 只保留 enabled=true 的设置；enabled=false 表示显式关闭。
                         .filter(SessionSkillSetting::isEnabled)
                         .map(SessionSkillSetting::getSkillId)
                         .collect(Collectors.toSet());
-                // 必装技能无条件补回，防止用户通过 API 绕过 UI 把 mandatory 技能关掉。
+                // mandatory 不能被会话开关真正关闭，所以补回。
                 explicit.addAll(mandatory);
                 return explicit;
             }
         }
-        // 没有会话显式设置时，使用系统默认启用技能作为新会话初始工具集。
-        Set<Long> defaults = new HashSet<>(skillRepository.findDefaultEnabledIds(allowedRoles(role)));
-        if (userId != null && !userId.isBlank()) {
-            // 用户已安装且启用的技能也加入默认集合，例如用户安装过 Tavily 后新会话可以直接使用。
+
+        // 没有会话显式设置时，从当前角色可用的 defaultEnabled 技能开始。
+        Set<Long> defaults = new HashSet<>(skillRepository.findDefaultEnabledIds(skillAccessPolicy.allowedRequiredRoles(role)));
+        if (userId != null && !userId.isBlank() && !"guest".equals(userId)) {
+            // 登录用户再叠加自己安装且启用的能力。
             defaults.addAll(userSkillInstallRepository.findEnabledSkillIdsByUser(userId));
         }
-        // 最后再次补 mandatory，保证默认集合和用户安装集合都不能覆盖必装规则。
+        // 最后无条件补 mandatory。
         defaults.addAll(mandatory);
         return defaults;
     }
 
-    private User.UserRole currentRole(String userId) {
-        if (userId == null || userId.isBlank()) {
-            // 无 userId 的场景包括简单聊天、匿名访问和内部调用，统一按 GUEST 权限处理。
+    /**
+     * 根据可信 userId 返回用户角色。
+     *
+     * @param userId 用户 id；null/blank/guest 都按访客处理
+     * @return 数据库中的角色；用户不存在时返回 GUEST
+     */
+    public User.UserRole currentRole(String userId) {
+        if (userId == null || userId.isBlank() || "guest".equals(userId)) {
             return User.UserRole.GUEST;
         }
         return userRepository.findById(userId)
-                // 查到用户就使用数据库中的真实角色，避免信任前端传来的 role。
                 .map(User::getUserRole)
-                // userId 无效时不抛异常，降级 GUEST 可以让匿名能力继续工作。
                 .orElse(User.UserRole.GUEST);
     }
 
-    private Set<User.UserRole> allowedRoles(User.UserRole role) {
-        if (role == null) {
-            role = User.UserRole.GUEST;
-        }
-        // 角色按权限从低到高排序；高角色天然包含低角色可用技能。
-        List<User.UserRole> order = List.of(
-                User.UserRole.GUEST,
-                User.UserRole.USER,
-                User.UserRole.PRO,
-                User.UserRole.PLUS,
-                User.UserRole.PRO_PLUS,
-                User.UserRole.VIP,
-                User.UserRole.ADMIN
-        );
-        int idx = order.indexOf(role);
-        if (idx < 0) {
-            // 未知角色按最低权限处理，避免新枚举值未配置时意外获得高级技能。
-            idx = 0;
-        }
-        EnumSet<User.UserRole> allowed = EnumSet.noneOf(User.UserRole.class);
-        for (int i = 0; i <= idx; i++) {
-            // 例如 VIP 会得到 GUEST/USER/PRO/PLUS/PRO_PLUS/VIP 这些 required_role 的技能。
-            allowed.add(order.get(i));
-        }
-        return allowed;
+    /**
+     * 按技能来源对已启用技能分组。
+     */
+    private Map<SkillSource, List<Skill>> enabledSkillsBySource(Set<Long> enabledSkillIds) {
+        return skillRepository.findAllById(enabledSkillIds).stream()
+                // 二次过滤全局 enabled=false，防止已安装但被管理员下线的能力被注入。
+                .filter(Skill::isEnabled)
+                .collect(Collectors.groupingBy(Skill::getSource));
     }
 
-    private ToolCallback toFunctionCallback(ResolvedTool tool) {
-        return FunctionToolCallback.builder(tool.qualifiedName(), (Map<String, Object> input, ToolContext context) -> {
+    /**
+     * 把一个内置 ResolvedTool 包装成 Spring AI callback 注册信息。
+     */
+    private ToolCallbackRegistration toBuiltinRegistration(ResolvedTool tool) {
+        ToolCallback callback = FunctionToolCallback.builder(tool.qualifiedName(), (Map<String, Object> input, ToolContext context) -> {
                     try {
-                        // Spring AI 传入的是 Map；执行器内部统一吃 JSON 字符串，所以先序列化一次。
+                        // Spring AI 传入的是 Map 参数，内置执行器期望 JSON 字符串，所以先序列化。
                         String args = objectMapper.writeValueAsString(input == null ? Map.of() : input);
-                        // ToolContext 里可能携带 user/session/message/query，用于工具内部授权和日志归因。
+                        // 从 ToolContext 提取可信上下文，交给内置执行器写入 ThreadLocal。
                         ToolExecutionContext executionContext = new ToolExecutionContext(
                                 context == null ? null : stringValue(context, "userId"),
                                 context == null ? null : stringValue(context, "sessionId"),
                                 context == null ? null : longValue(context, "messageId"),
                                 context == null ? null : stringValue(context, "query")
                         );
-                        Object result = toolExecutorService.execute(tool, args, executionContext);
-                        return result;
+                        return toolExecutorService.execute(tool, args, executionContext);
                     } catch (JsonProcessingException e) {
-                        // 参数序列化失败说明工具调用链已经无法继续，抛 IllegalStateException 让上层按模型调用失败处理。
                         throw new IllegalStateException("Unable to serialize tool arguments for " + tool.qualifiedName(), e);
                     }
                 })
+                // description 和 inputSchema 都来自启动期同步到数据库的工具定义。
+                .description(tool.description())
+                .inputSchema(tool.parametersSchema().toString())
                 .build();
+        return new ToolCallbackRegistration(
+                callback,
+                tool.skillId(),
+                tool.skillKey(),
+                tool.qualifiedName(),
+                tool.dangerLevel(),
+                "BUILTIN"
+        );
     }
 
+    /**
+     * 从 ToolContext 中读取字符串字段。
+     */
     private String stringValue(ToolContext context, String key) {
-        // ToolContext 的 value 类型不固定，这里统一转字符串，避免调用端传 Long/UUID 时类型不匹配。
         Object value = context.getContext().get(key);
         return value == null ? null : String.valueOf(value);
     }
 
+    /**
+     * 从 ToolContext 中宽松读取 Long 字段。
+     */
     private Long longValue(ToolContext context, String key) {
-        // messageId 是日志字段，可以不存在；不存在时返回 null，不阻塞工具执行。
         Object value = context.getContext().get(key);
         if (value == null) {
             return null;
         }
         if (value instanceof Number number) {
-            // 已经是数字类型时直接取 longValue，避免字符串 parse 的额外风险。
             return number.longValue();
         }
         try {
-            // 有些调用链会把 messageId 放成字符串，这里做兼容解析。
             return Long.parseLong(String.valueOf(value));
         } catch (NumberFormatException ex) {
-            // messageId 解析失败不应该导致工具调用失败，所以返回 null 只影响日志关联精度。
             return null;
         }
     }
