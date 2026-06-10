@@ -8,11 +8,11 @@
         <version>3.2.0</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.honghu.ut.test.ai.assigment</groupId>
-    <artifactId>testDeepseekR1</artifactId>
+    <groupId>com.honghu.ai</groupId>
+    <artifactId>honghu-ai</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>testDeepseekR1</name>
-    <description>testDeepseekR1</description>
+    <name>honghu-ai</name>
+    <description>Honghu AI — 企业级多模型智能对话与 RAG 平台 (Spring Boot 3 + Spring AI)</description>
     <url/>
     <licenses>
         <license/>
@@ -261,10 +261,40 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <mainClass>com.honghu.ut.test.ai.assigment.testdeepseekr1.service.AiTest</mainClass>
+                    <mainClass>com.honghu.ai.assigment.service.AiTest</mainClass>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            CI profile: run only the infrastructure-free unit tests.
+
+            The full @SpringBootTest context (and the manual Ollama-tunnel
+            runners) need PostgreSQL / Redis / Milvus / a live model endpoint,
+            which CI does not provision. Everything else is Mockito-based and
+            runs anywhere. Activate with: mvn -Pci verify
+        -->
+        <profile>
+            <id>ci</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/HonghuAiApplicationTests.java</exclude>
+                                <exclude>**/ConnectionExceptionTest.java</exclude>
+                                <exclude>**/ConnectionTest.java</exclude>
+                                <exclude>**/AiTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

@@ -1,10 +1,48 @@
-HELP.md
+# ===================== Build output =====================
 target/
-.mvn/wrapper/maven-wrapper.jar
+build/
 !**/src/main/**/target/
 !**/src/test/**/target/
+!**/src/main/**/build/
+!**/src/test/**/build/
+.mvn/wrapper/maven-wrapper.jar
+.mvn/jvm.config
 
-### STS ###
+# ===================== Logs & crash dumps =====================
+logs/
+*.log
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# ===================== Local secrets / machine config =====================
+src/main/resources/application-local.yml
+.env
+.env.local
+*.local
+
+# ===================== Stray / generated cruft =====================
+HELP.md
+cp.txt
+/org/
+/META-INF/
+/DeployLog/
+/dist/
+%SystemDrive%/
+repair-jpa.bat
+
+# ===================== Node / tooling (this is a Java repo) =====================
+node_modules/
+/package.json
+/package-lock.json
+
+# ===================== AI / editor tooling =====================
+.claude/
+.deepseek/
+.codex/
+.cursor/
+
+# ===================== STS =====================
 .apt_generated
 .classpath
 .factorypath
@@ -13,25 +51,21 @@ target/
 .springBeans
 .sts4-cache
 
-### IntelliJ IDEA ###
+# ===================== IntelliJ IDEA =====================
 .idea
 *.iws
 *.iml
 *.ipr
 
-### NetBeans ###
+# ===================== NetBeans =====================
 /nbproject/private/
 /nbbuild/
-/dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
-### VS Code ###
+# ===================== VS Code =====================
 .vscode/
 
-### Local secrets / machine-specific config ###
-src/main/resources/application-local.yml
-
+# ===================== OS =====================
+.DS_Store
+Thumbs.db
