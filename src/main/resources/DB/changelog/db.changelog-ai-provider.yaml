@@ -1,0 +1,73 @@
+databaseChangeLog:
+  - logicalFilePath: "DB/changelog/db.changelog-ai-provider.xml"
+  - changeSet:
+      id: "ai-provider-1"
+      author: "honghu"
+      comment: "Provider 注册表：把 provider 配置与（加密的）API Key 落库，供后台维护。"
+      changes:
+        - createTable:
+            tableName: "ai_provider"
+            columns:
+              - column:
+                  name: "provider_code"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "display_name"
+                  type: "VARCHAR(160)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "provider_type"
+                  type: "VARCHAR(32)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "base_url"
+                  type: "VARCHAR(500)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "chat_completions_path"
+                  type: "VARCHAR(200)"
+                  defaultValue: "/v1/chat/completions"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "use_api_key"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "api_key_cipher"
+                  type: "TEXT"
+              - column:
+                  name: "api_key_header"
+                  type: "VARCHAR(64)"
+                  defaultValue: "Authorization"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "api_key_prefix"
+                  type: "VARCHAR(32)"
+              - column:
+                  name: "enabled"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false

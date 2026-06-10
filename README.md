@@ -1,583 +1,350 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/🌿-Honghu_AI-2e7d32?style=for-the-badge&labelColor=43a047&logo=data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0id2hpdGUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTEyIDJDNi40OCAyIDIgNi40OCAyIDEyczQuNDggMTAgMTAgMTAgMTAtNC40OCAxMC0xMFMxNy41MiAyIDEyIDJ6Ii8+PC9zdmc+" alt="Honghu AI"/>
+# 🦅 Honghu AI
 
-# 🌲 Honghu AI
+### 企业级多模型智能对话 · RAG 知识库 · 可扩展技能（MCP / Tool-Calling / CLI / Skills）平台
 
-### 🤖 企业级多模型智能对话平台
-
-<br/>
-
+[![CI](https://github.com/shilaoban666/Honghu-ai-assigmemt/actions/workflows/ci.yml/badge.svg)](https://github.com/shilaoban666/Honghu-ai-assigmemt/actions/workflows/ci.yml)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.0-6DB33F?style=flat-square&logo=springboot&logoColor=white)](https://spring.io/projects/spring-boot)
-[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.0.0--M3-6DB33F?style=flat-square&logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
+[![Spring AI](https://img.shields.io/badge/Spring%20AI-1.0.0-6DB33F?style=flat-square&logo=spring&logoColor=white)](https://spring.io/projects/spring-ai)
+[![Java](https://img.shields.io/badge/Java-17-orange?style=flat-square&logo=openjdk&logoColor=white)](https://openjdk.org/)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Redis](https://img.shields.io/badge/Redis-7.x-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io/)
-[![DeepSeek](https://img.shields.io/badge/DeepSeek-R1-4A90D9?style=flat-square&logo=openai&logoColor=white)](https://www.deepseek.com/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](LICENSE)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis&logoColor=white)](https://redis.io/)
+[![Milvus](https://img.shields.io/badge/Milvus-2.4-00A1EA?style=flat-square&logo=milvus&logoColor=white)](https://milvus.io/)
+[![Docker](https://img.shields.io/badge/Docker%20Compose-ready-2496ED?style=flat-square&logo=docker&logoColor=white)](#-快速开始docker-一条命令)
 
-<br/>
-
-**智能对话助手，为您服务** · 多模型路由 · 会话记忆 · 权限管控 · 流式响应
-
-<br/>
-
-[🚀 快速开始](#-快速开始) · [📖 API 文档](#-api-接口文档) · [🏗️ 架构设计](#️-系统架构) · [⚙️ 配置指南](#️-配置说明)
-
----
+**多模型路由 · SSE 流式 · 三层记忆 · 向量 RAG · 技能市场 · Token 计费 · RBAC 权限 · 管理后台**
 
 </div>
 
-<br/>
+<p align="center">
+  <img src="docs/screenshots/honghu-ai-chat.png" alt="Honghu AI Chat 界面" width="92%"/>
+</p>
 
-## ✨ 功能亮点
+---
+
+## 目录
+
+- [项目简介](#项目简介)
+- [核心能力](#核心能力)
+- [系统架构](#系统架构)
+- [技术栈](#技术栈)
+- [快速开始（Docker 一条命令）](#-快速开始docker-一条命令)
+- [本地开发启动](#本地开发启动)
+- [核心模块详解](#核心模块详解)
+- [API 接口](#api-接口)
+- [项目结构](#项目结构)
+- [测试与 CI](#测试与-ci)
+- [路线图](#路线图)
+
+---
+
+## 项目简介
+
+**Honghu AI** 是一个基于 **Spring Boot 3 + Spring AI** 的企业级 AI 应用后端。它不是一个“调用一下大模型 API”的玩具，而是把一套真实可用的 LLM 应用平台所需的工程能力完整落地：
+
+- **统一模型网关**：本地 Ollama 与多家 OpenAI-兼容云厂商（DeepSeek / 通义千问 / Gemini / OpenAI…）统一接入，按任务复杂度自动路由，本地不可用时云端兜底。
+- **检索增强（RAG）**：S3 上传 → SQS 事件驱动 → 文档解析（PDF / DOCX / Markdown / 图片 OCR）→ 分块 → Milvus 向量化 → 关键词/向量混合检索 + 作用域兜底。
+- **可扩展技能系统**：统一抽象 **MCP / Tool-Calling / CLI / Claude Skills** 四类能力来源，配套能力市场、会话级开关、工具调用审计、SSRF 防护、CLI 危险命令门与密钥加密。
+- **计费与配额**：Token + 金额双计价、按用户/工作空间的日月配额、全链路用量审计流水。
+- **权限与后台**：Guest / User / VIP / Admin 四级 RBAC，精确到模型级别的访问控制，以及完整的管理后台 API。
+
+> 配套前端为独立的 Vue 3 单页应用（聊天、技能广场、设置中心、计费看板），上方截图即为其运行界面。
+
+---
+
+## 核心能力
 
 <table>
 <tr>
 <td width="50%">
 
-### 🧠 智能模型路由
-根据用户消息**自动分析任务复杂度**，智能选择最适合的 AI 模型。简单问答走轻量 8B，复杂编程/分析走 32B，**成本与效果的最佳平衡**。
+### 🧠 多模型智能路由
+统一网关 `AiChatModelGatewayService` 屏蔽 provider 差异：本地 **Ollama** 走 Spring AI，云端走 **OpenAI-兼容 HTTP 客户端**。按消息复杂度路由轻量/重量模型，本地不可用时**自动回退云端**，并在调用前后做配额校验与成本核算。
 
 </td>
 <td width="50%">
 
-### 💬 流式对话 & 持久化
-支持 **SSE 实时流式响应**，打字机效果逐字输出。全量对话自动持久化至 PostgreSQL，**随时回溯历史上下文**。
+### 💬 流式对话 & 三层记忆
+**SSE** 逐字流式输出，全量对话持久化至 PostgreSQL。记忆分三层：Redis **Token 滑动窗口**（一层）、超长对话**摘要压缩**（二层）、跨会话**用户画像聚合**（二层），用 JTokkit 精确计 token。
 
 </td>
 </tr>
 <tr>
 <td width="50%">
 
-### 🔐 角色权限体系
-四级用户角色 (Guest → User → VIP → Admin)，**精细到模型级别的访问控制**。支持个性化授权，灵活管理 AI 资源分配。
+### 📚 向量 RAG 知识库
+事件驱动摄取管线：**S3 → SQS → 解析 → 清洗 → 分块 → 向量化 → Milvus**。检索侧支持关键词/向量两种模式、查询改写、多路融合（RRF）、**作用域兜底**（附件 → 当前对话 → 整个会话）与重排预留。
 
 </td>
 <td width="50%">
 
-### 📝 记忆压缩引擎
-基于 Token 计数的**滑动窗口记忆**，搭配 Redis 高速缓存。对话过长时自动触发**智能摘要压缩**，保留关键上下文不丢失。
+### 🧩 可扩展技能系统
+一套抽象统一 **MCP / Tool-Calling / CLI / Claude Skills**。能力市场数据由定时爬虫从 MCP Registry 与 GitHub 抓取（真实数据，非 mock）。运行期具备工具审计、SSRF 防护、CLI 危险命令门、密钥 AES 加密。
+
+</td>
+</tr>
+<tr>
+<td width="50%">
+
+### 💰 Token 计费与配额
+以 **Token 与金额**为统一计费符号，价格快照 + 用量事件（`ai_usage_event`）全链路落账。无论成功、失败、超限还是缺价格都尽量写审计流水，支持个人与工作空间两级配额。
+
+</td>
+<td width="50%">
+
+### 🔐 RBAC 权限 & 管理后台
+**Guest → User → VIP → Admin** 四级角色，精确到模型级别的访问授权。独立的管理后台可动态增删改 **模型目录** 与 **Provider 注册表**（API Key 经 AES-GCM 加密存储、查询只回掩码），配额 / 计费 / 监控一应俱全，与前台用户体系隔离鉴权。
 
 </td>
 </tr>
 </table>
 
-<br/>
+---
 
-## 🏗️ 系统架构
+## 系统架构
 
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                          🌐 Client Layer                            │
-│                  Swagger UI / Web App / API Client                   │
-└──────────────────────────────┬──────────────────────────────────────┘
-                               │  HTTP / SSE
-┌──────────────────────────────▼──────────────────────────────────────┐
-│                       🎯 Controller Layer                           │
-│  ┌──────────────┐ ┌────────────────┐ ┌────────────┐ ┌───────────┐  │
-│  │ChatController│ │ UserController │ │SessionCtrl │ │MonitorCtrl│  │
-│  │  /api/v1/chat│ │ /api/v1/users  │ │/api/v1/sess│ │/api/monitor│ │
-│  └──────┬───────┘ └───────┬────────┘ └─────┬──────┘ └─────┬─────┘  │
-└─────────┼─────────────────┼────────────────┼───────────────┼────────┘
-          │                 │                │               │
-┌─────────▼─────────────────▼────────────────▼───────────────▼────────┐
-│                        ⚙️ Service Layer                             │
-│                                                                      │
-│  ┌─────────────────────────────────────────────────────────────┐    │
-│  │                    ChatService (核心)                        │    │
-│  │  结构化聊天 · 流式聊天 · 持久化聊天 · 任务分类路由           │    │
-│  └──────────┬────────────────────────────────┬─────────────────┘    │
-│             │                                │                       │
-│  ┌──────────▼──────────┐    ┌────────────────▼─────────────────┐    │
-│  │AiTaskKeywordService │    │    AiChatModelGatewayService     │    │
-│  │  关键词匹配          │    │     统一模型调用网关              │    │
-│  │  5种任务分类         │    │  ┌─────────────┬──────────────┐  │    │
-│  └─────────────────────┘    │  │ Ollama本地   │ OpenAI兼容   │  │    │
-│                              │  │ DeepSeek R1  │ 外部API      │  │    │
-│  ┌─────────────────────┐    │  └─────────────┴──────────────┘  │    │
-│  │ ChatMemoryService   │    └──────────────────────────────────┘    │
-│  │  滑动窗口记忆        │                                           │
-│  │  Token计数(JTokkit)  │    ┌──────────────────────────────────┐    │
-│  └─────────────────────┘    │   AiModelAccessService           │    │
-│                              │   角色+权限 → 可用模型列表        │    │
-│  ┌─────────────────────┐    └──────────────────────────────────┘    │
-│  │ChatSummaryService   │                                            │
-│  │  会话摘要压缩        │                                            │
-│  └─────────────────────┘                                            │
-└─────────────────────┬───────────────────────────────┬───────────────┘
-                      │                               │
-┌─────────────────────▼───────┐   ┌───────────────────▼───────────────┐
-│     🐘 PostgreSQL           │   │          🔴 Redis                  │
-│  ┌────────┐ ┌────────────┐  │   │                                    │
-│  │ users  │ │chat_session│  │   │   记忆窗口缓存 · Token 计数缓存    │
-│  ├────────┤ ├────────────┤  │   │                                    │
-│  │chat_msg│ │ai_model_def│  │   └────────────────────────────────────┘
-│  ├────────┤ ├────────────┤  │
-│  │task_kw │ │user_model_ │  │   ┌────────────────────────────────────┐
-│  │        │ │ permission │  │   │        🦙 Ollama (本地)             │
-│  └────────┘ └────────────┘  │   │   DeepSeek R1:8B / R1:32B          │
-│  Liquibase 版本管理          │   └────────────────────────────────────┘
-└─────────────────────────────┘
+```mermaid
+flowchart TB
+    Client["🌐 前端 / API 客户端<br/>(Vue 3 SPA · Swagger · SSE)"]
+
+    subgraph API["🎯 Controller 层"]
+        ChatC["ChatController"]
+        RagC["RagController"]
+        CapC["CapabilityController"]
+        AdminC["AdminController"]
+        UserC["UserController"]
+    end
+
+    subgraph SVC["⚙️ Service 层"]
+        Chat["ChatService<br/>结构化 / 流式 / 持久化"]
+        Gateway["AiChatModelGatewayService<br/>统一模型网关 + 配额 + 计费"]
+        Memory["ChatMemory / Summary<br/>三层记忆"]
+        Rag["RAG Pipeline<br/>摄取 + 检索"]
+        Skill["Skill / Capability<br/>MCP·Tool·CLI·Skills"]
+        Billing["Billing / Quota / Usage"]
+    end
+
+    subgraph INFRA["🗄️ 基础设施"]
+        PG[("🐘 PostgreSQL<br/>用户·会话·消息·计费")]
+        Redis[("🔴 Redis<br/>记忆窗口·锁·缓存")]
+        Milvus[("🔵 Milvus<br/>向量库")]
+        S3[("☁️ S3 / SQS<br/>对象存储·事件")]
+    end
+
+    subgraph MODELS["🤖 模型 Provider"]
+        Ollama["Ollama 本地<br/>DeepSeek R1"]
+        Cloud["OpenAI-兼容云<br/>DeepSeek·Qwen·Gemini·GPT"]
+    end
+
+    Client --> API --> SVC
+    Chat --> Gateway --> Ollama & Cloud
+    Chat --> Memory --> Redis
+    Rag --> Milvus
+    Rag --> S3
+    Skill --> Cloud
+    SVC --> PG
+    Billing --> PG
 ```
 
-<br/>
+> 子系统详细架构图（已收录于 `docs/`，GitHub 可直接预览）：
 
-## 🤖 AI 模型 & 智能路由
+| 主题 | 图 |
+|:---|:---|
+| 企业级 RAG 向量检索（DDD 分层） | [`docs/enterprise-rag-ddd-architecture.svg`](docs/enterprise-rag-ddd-architecture.svg) |
+| RAG 摄取管线流程 | [`docs/rag_pipeline_flow.png`](docs/rag_pipeline_flow.png) |
+| Milvus 生产生命周期 | [`docs/milvus-production-lifecycle.svg`](docs/milvus-production-lifecycle.svg) |
+| Spring AI ETL 流 | [`docs/spring-ai-etl-flow.svg`](docs/spring-ai-etl-flow.svg) |
+| 技能系统后端架构 | [`docs/skill-mcp-backend-architecture.svg`](docs/skill-mcp-backend-architecture.svg) |
+| 技能系统运行时流 | [`docs/skill-mcp-runtime-flow.svg`](docs/skill-mcp-runtime-flow.svg) |
+| 技能系统数据模型 | [`docs/skill-mcp-data-model.svg`](docs/skill-mcp-data-model.svg) |
 
-### 任务分类引擎
+---
 
-系统根据消息内容自动识别任务类型，匹配最佳模型：
+## 技术栈
 
-| 任务类型 | 关键词示例 | 路由模型 | 说明 |
-|:---:|:---|:---:|:---|
-| 🖥️ **CODE** | `代码` `函数` `debug` `重构` | R1:32B | 代码生成、调试、优化 |
-| 📐 **DESIGN** | `架构` `方案` `设计模式` | R1:32B | 系统架构、方案设计 |
-| 📊 **ANALYSIS** | `分析` `推理` `对比` | R1:32B | 深度分析、逻辑推理 |
-| 🔄 **DATA** | `清洗` `转换` `ETL` | R1:32B | 数据处理、格式转换 |
-| ✍️ **TEXT** | `翻译` `润色` `改写` | R1:8B/32B | 文本创作、翻译润色 |
+| 分类 | 选型 |
+|:---|:---|
+| **框架** | Spring Boot 3.2 · Spring AI 1.0.0 · Spring Data JPA · Spring AOP |
+| **AI / 向量** | Spring AI（Ollama / OpenAI-兼容 / Milvus VectorStore）· JTokkit（Token 计数） |
+| **数据存储** | PostgreSQL 16 · Redis 7 · Milvus 2.4 · Liquibase（YAML-first 迁移） |
+| **云 / 消息** | AWS S3（对象存储 + 预签名 URL）· SQS（`@SqsListener` 事件驱动）· Spring Cloud AWS |
+| **文档解析** | Apache PDFBox · Apache POI（DOCX）· 图片 OCR |
+| **接口 / 工具** | SpringDoc OpenAPI（Swagger UI）· OkHttp · Lombok · Spring Security Crypto |
+| **工程化** | Docker / Docker Compose · GitHub Actions CI · JUnit 5 + Mockito（159 单测） |
 
-> **路由策略**：消息长度 ≥ 20字 **或** 命中复杂任务关键词 → 32B 大模型；否则 → 8B 轻量模型
+---
 
-### 权限模型
+## 🚀 快速开始（Docker 一条命令）
 
-```
-🏠 GUEST   ──→  本地模型 + 第二梯队          (基础体验)
-👤 USER    ──→  全部第二梯队模型              (标准服务)
-⭐ VIP     ──→  全部已启用模型                (高级服务)
-🛡️ ADMIN   ──→  全部已启用模型 + 管理后台     (完全控制)
-```
-
-<br/>
-
-## 🚀 快速开始
-
-### 环境要求
-
-| 依赖 | 版本 | 说明 |
-|:---:|:---:|:---|
-| ☕ JDK | 17+ | 推荐 JDK 21 |
-| 🐘 PostgreSQL | 14+ | 数据持久化 |
-| 🔴 Redis | 6+ | 记忆缓存 |
-| 🦙 Ollama | 最新版 | 本地模型推理 |
-| 📦 Maven | 3.8+ | 项目构建 |
-
-### 一键启动
+完整本地栈（PostgreSQL + Redis + Milvus 集群 + 应用）一键拉起，应用会等待所有依赖就绪后再启动。
 
 ```bash
-# 1️⃣ 克隆项目
-git clone https://github.com/your-org/honghu-ai.git
-cd honghu-ai
+# 1. 克隆
+git clone https://github.com/shilaoban666/Honghu-ai-assigmemt.git
+cd Honghu-ai-assigmemt
 
-# 2️⃣ 拉取 DeepSeek R1 模型
-ollama pull deepseek-r1:8b
-ollama pull deepseek-r1:32b    # 可选，需要更多显存
+# 2. 配置至少一个 AI provider 的 Key（启用对话）
+cp .env.example .env
+#   编辑 .env，填入 DEEPSEEK_CLOUD_API_KEY=sk-xxxx（或 OPENAI_API_KEY / ALIYUN_API_KEY）
 
-# 3️⃣ 启动应用
-# Windows
-start-app.bat
-
-# Linux / macOS
-chmod +x start-app.sh && ./start-app.sh
-
-# 或直接使用 Maven
-mvn spring-boot:run
+# 3. 一条命令拉起整个平台
+docker compose up -d --build
 ```
 
-### 验证服务
-
-```bash
-# 健康检查
-curl http://localhost:8080/health/ping
-
-# 快速聊天
-curl "http://localhost:8080/api/v1/chat/simple?message=你好"
-```
-
-启动成功后访问：
+启动后访问：
 
 | 服务 | 地址 |
 |:---|:---|
+| 💚 健康检查 | http://localhost:8080/actuator/health |
 | 🌐 Swagger UI | http://localhost:8080/swagger-ui.html |
-| 📄 API 文档 | http://localhost:8080/api-docs |
-| 💚 健康检查 | http://localhost:8080/health |
-| 📊 系统监控 | http://localhost:8080/api/monitor/overview |
+| 📄 OpenAPI | http://localhost:8080/api-docs |
+| 🔵 Milvus 指标 | http://localhost:9091/healthz |
 
-<br/>
+> **说明**：S3 上传与 SQS 驱动的 RAG 摄取依赖真实 AWS（或 LocalStack），默认关闭以便一键启动；核心对话、记忆、关键词 RAG 检索、技能系统、管理后台均可直接运行。若需启用本地 Ollama，请在宿主机运行 `ollama serve` 并保留 `.env` 中的 `OLLAMA_LOCAL_BASE_URL`。
 
-## 📖 API 接口文档
+---
 
-### 💬 聊天接口 `/api/v1/chat`
+## 本地开发启动
+
+不使用 Docker 时，需自备 PostgreSQL / Redis / Milvus（可只用 Docker 起依赖，应用本地 `mvn` 运行）：
+
+```bash
+# 仅用容器起依赖
+docker compose up -d postgres redis milvus
+
+# 本地运行应用（默认连 localhost 依赖；连接参数见 application.yml 环境变量）
+./mvnw spring-boot:run
+```
+
+机器相关的密钥放在 `src/main/resources/application-local.yml`（已 `.gitignore`），不会进入仓库。
+
+---
+
+## 核心模块详解
 
 <details>
-<summary><b>GET</b> <code>/simple</code> — 简单聊天</summary>
+<summary><b>🧠 多模型网关 & 智能路由</b></summary>
 
-```http
-GET /api/v1/chat/simple?message=你好
-```
-```json
-{
-  "content": "你好！我是 Honghu AI 助手，很高兴为你服务。",
-  "model": "deepseek-r1:8b",
-  "timestamp": 1740280000000,
-  "success": true
-}
-```
+- `AiChatModelGatewayService`：所有聊天调用的统一入口。按 provider 类型分流到本地 Ollama 或 OpenAI-兼容 HTTP 客户端；本地不可用时按配置回退云端；调用前查配额、调用后按 token 用量与价格快照算成本，并写 `ai_usage_event` 审计流水。
+- `AiTaskKeywordService`：基于关键词的任务分类（CODE / DESIGN / ANALYSIS / DATA_PROCESSING / TEXT），决定路由到轻量还是重量模型。
+- `AiModelAccessService`：角色 + 个性化授权 → 实际可用模型列表。
+
 </details>
 
 <details>
-<summary><b>POST</b> <code>/structured</code> — 结构化聊天（推荐）</summary>
+<summary><b>📚 RAG 摄取与检索管线</b></summary>
 
-```http
-POST /api/v1/chat/structured
-Content-Type: application/json
-```
-```json
-{
-  "message": "用 Java 实现一个线程安全的单例模式",
-  "model": "deepseek-r1:32b",
-  "systemMessage": "你是一个资深 Java 架构师",
-  "temperature": 0.7,
-  "maxTokens": 4096
-}
-```
+**摄取**：S3 上传完成 → SQS 事件（`RagDocumentUploadedListener`）→ 拉取文件 → 按类型解析（PDF / DOCX / Markdown / 纯文本 / 图片 OCR）→ 文本清洗 → 多策略分块（递归结构 / 段落打包 / 句子窗口 / 重叠窗口）→ Embedding → 写入 Milvus（自定义 `MilvusVectorRepository` 做幂等 delete/insert）。
+
+**检索**：`ScopeResolver`（解析作用域）→ `QueryAnalyzer`（可选改写）→ 关键词/向量召回 → `ResultFusion`（RRF 融合）→ `RagScopeFallback`（命中不足时 FILE_IDS → CHAT → SESSION 逐级扩大作用域）→ 排序 / 截断 / 格式化为 Prompt 上下文。
+
 </details>
 
 <details>
-<summary><b>POST</b> <code>/structured/stream</code> — 流式聊天 (SSE)</summary>
+<summary><b>🧩 技能 / 能力系统</b></summary>
 
-```http
-POST /api/v1/chat/structured/stream
-Accept: text/event-stream
-Content-Type: application/json
-```
-```json
-{
-  "message": "讲解 Spring AOP 原理",
-  "stream": true
-}
-```
-> 返回 Server-Sent Events 流，逐字输出 AI 响应
+- 统一抽象四类能力来源：**MCP Server**、原生 **Tool-Calling**、**CLI** 命令、**Claude Skills**。
+- `CapabilityService` 提供能力的安装 / 启用 / 分页浏览；能力市场数据由 `McpRegistryCrawler` / `ClaudeSkillCrawler` / `PulseMcpChineseCrawler` / `ChinesePromptSkillCrawler` 定时从 MCP Registry 与 GitHub 抓取真实数据。
+- 安全：`ToolGuard`（工具访问决策）、`SkillAccessPolicy`、MCP 端点 **SSRF 防护**、CLI **危险命令门**（`SandboxedCommandRunner`）、`SecretCipher`（凭证加密）、`AuditingToolCallback`（调用审计）。
+
 </details>
 
 <details>
-<summary><b>POST</b> <code>/structured/stream/persistent</code> — 持久化流式聊天</summary>
+<summary><b>💰 计费 / 配额 / 用量</b></summary>
+
+- Token 与金额双计价；`BillingService` 按模型价格快照核算成本；`QuotaService` 支持个人与工作空间的日/月配额；`UsageEventService` 落全链路用量审计（成功 / 失败 / 超限 / 缺价格）。
+
+</details>
+
+---
+
+## API 接口
+
+完整接口见 **Swagger UI**（`/swagger-ui.html`）。主要分组：
+
+| 分组 | 前缀 | 说明 |
+|:---|:---|:---|
+| 💬 聊天 | `/api/v1/chat` | 结构化 / 流式(SSE) / 持久化流式 / 历史查询 |
+| 📂 会话 | `/api/v1/sessions` | 会话列表 / 详情 / 重命名 / 删除 |
+| 👤 用户 | `/api/v1/users` | 注册 / 登录 / 资料 / 头像 / 配额查询 |
+| 📚 RAG | `/api/v1/rag` | 文档上传(预签名) / 摄取状态(SSE) / 检索 |
+| 🧩 能力 | `/api/v1/capabilities` · `/api/v1/skills` | 能力市场 / 安装 / 会话级开关 |
+| 🛡️ 管理 | `/api/v1/admin` | 用户 / 模型 / 配额 / 计费 / 后台鉴权 |
+| 📊 监控 | `/api/monitor` | CPU / 内存 / 线程指标总览 |
+
+<details>
+<summary>示例：结构化流式聊天（SSE）</summary>
 
 ```http
 POST /api/v1/chat/structured/stream/persistent
 Content-Type: application/json
-```
-```json
+
 {
-  "message": "帮我设计一个微服务架构",
-  "sessionId": "550e8400-e29b-41d4-a716-446655440000",
-  "userId": "user-001"
+  "message": "用 Java 实现一个线程安全的单例并讲解原理",
+  "sessionId": "550e8400-e29b-41d4-a716-446655440000"
 }
 ```
-> 自动保存对话到数据库 + 集成记忆管理
+> 返回 Server-Sent Events，逐字输出；对话自动持久化并接入三层记忆。
 </details>
 
-<details>
-<summary><b>GET</b> <code>/history/{sessionId}</code> — 查询对话历史</summary>
+---
 
-```http
-GET /api/v1/chat/history/550e8400-e29b-41d4-a716-446655440000
-```
-</details>
-
-### 👤 用户接口 `/api/v1/users`
-
-| 方法 | 路径 | 说明 |
-|:---:|:---|:---|
-| `POST` | `/` | 创建用户 |
-| `GET` | `/{userId}` | 查询用户 |
-| `GET` | `/` | 用户列表 |
-| `PUT` | `/{userId}` | 更新用户 |
-| `DELETE` | `/{userId}` | 删除用户 |
-| `POST` | `/login` | 用户登录 |
-| `GET` | `/search?keyword=xxx` | 搜索用户 |
-| `GET` | `/status/{status}` | 按状态过滤 |
-
-### 📂 会话接口 `/api/v1/sessions`
-
-| 方法 | 路径 | 说明 |
-|:---:|:---|:---|
-| `GET` | `/` | 所有会话 |
-| `GET` | `/user/{userId}` | 用户的会话 |
-| `GET` | `/{sessionId}` | 查询会话 |
-| `DELETE` | `/{sessionId}` | 删除会话 |
-| `PUT` | `/{sessionId}/rename` | 重命名会话 |
-
-### 📊 监控接口 `/api/monitor`
-
-| 方法 | 路径 | 说明 |
-|:---:|:---|:---|
-| `GET` | `/metrics` | CPU / 内存 / 线程指标 |
-| `GET` | `/overview` | 监控总览 |
-| `GET` | `/refresh` | 刷新指标 |
-
-<br/>
-
-## 📁 项目结构
+## 项目结构
 
 ```
 honghu-ai/
-│
-├── 📂 src/main/java/.../testdeepseekr1/
-│   ├── 🎯 controller/                  # REST 控制器
-│   │   ├── ChatController.java          #   聊天 API (核心)
-│   │   ├── UserController.java          #   用户管理
-│   │   ├── ChatSessionController.java   #   会话管理
-│   │   ├── HealthController.java        #   健康检查
-│   │   └── MonitorController.java       #   系统监控
-│   │
-│   ├── ⚙️ service/                     # 业务服务层
-│   │   ├── ChatService.java             #   聊天核心逻辑
-│   │   ├── AiChatModelGatewayService    #   模型调用网关
-│   │   ├── AiModelAccessService.java    #   权限与模型访问
-│   │   ├── AiTaskKeywordService.java    #   任务分类引擎
-│   │   ├── ChatMemoryService.java       #   记忆管理
-│   │   └── ChatSummaryService.java      #   会话摘要压缩
-│   │
-│   ├── 📦 entity/                      # JPA 数据实体
-│   │   ├── User.java                    #   用户
-│   │   ├── ChatSession.java             #   会话
-│   │   ├── ChatMessage.java             #   消息
-│   │   ├── AiModelDefinition.java       #   模型定义
-│   │   ├── AiTaskKeyword.java           #   任务关键词
-│   │   └── UserModelPermission.java     #   用户模型权限
-│   │
-│   ├── 🗃️ repository/                  # 数据访问层
-│   ├── 📋 dto/                         # 数据传输对象
-│   ├── ⚠️ exception/                   # 全局异常处理
-│   ├── 🔧 config/                      # 配置类
-│   └── 📡 monitor/                     # 系统监控
-│
-├── 📂 src/main/resources/
-│   ├── application.yml                  # 应用配置
-│   ├── 📂 prompts/                     # AI 提示词库
-│   │   ├── default-system-prompt.txt    #   默认系统提示
-│   │   ├── 📂 tasks/                   #   任务专属提示词
-│   │   └── 📂 summary/                 #   摘要压缩提示词
-│   └── 📂 DB/changelog/               # Liquibase 数据库变更
-│
-├── 📂 src/test/                        # 单元测试
-├── start-app.bat / .sh                  # 启动脚本
-├── pom.xml                              # Maven 配置
-└── README.md                            # 📖 你在这里
+├── src/main/java/com/honghu/ai/assigment/
+│   ├── controller/      # REST 控制器（Chat / Rag / User / Monitor …）
+│   ├── service/         # 业务服务（32 个：网关 / 记忆 / 摘要 / 计费 …）
+│   ├── rag/             # RAG 摄取 + 检索（解析 / 清洗 / 分块 / 向量 / 融合 / 兜底）
+│   ├── skill/           # 技能系统（core / crawler / builtin / security / dto）
+│   ├── admin/           # 管理后台（控制器 + 鉴权服务）
+│   ├── memory/          # 记忆摘要客户端
+│   ├── manager/         # AWS 资源统一封装
+│   ├── security/        # 用户会话 Token
+│   ├── entity/ repository/ dto/ config/ exception/ monitor/ listener/ util/
+│   └── HonghuAiApplication（@SpringBootApplication 扫描入口）
+├── src/main/resources/
+│   ├── application.yml           # 全量配置（环境变量占位，无明文密钥）
+│   ├── prompts/                  # 系统/任务/摘要提示词库
+│   └── DB/changelog/*.yaml        # Liquibase（YAML-first）
+├── src/test/                      # 159 单元测试（Mockito）
+├── docs/                          # 架构图（SVG / PNG）+ 设计文档
+├── Dockerfile · docker-compose.yml · .env.example
+└── .github/workflows/ci.yml       # GitHub Actions CI
 ```
 
-<br/>
+> Liquibase 采用 YAML-first：主入口 `db.changelog-master.yaml`，各子 changelog 保留原 `.xml` `logicalFilePath` 以兼容历史 `DATABASECHANGELOG` 校验和。
 
-## ⚙️ 配置说明
+---
 
-### 核心配置 `application.yml`
-
-```yaml
-# 🤖 AI 模型配置
-spring:
-  ai:
-    ollama:
-      base-url: http://localhost:11434
-      chat:
-        options:
-          model: deepseek-r1:8b
-          temperature: 0.7
-
-# 🎯 智能路由
-app:
-  ai:
-    default-model: deepseek-r1:8b
-    routing:
-      simpleDefaultModel: deepseek-r1:8b     # 简单任务 → 8B
-      complexDefaultModel: deepseek-r1:32b   # 复杂任务 → 32B
-  chat:
-    memory:
-      max-tokens: 8000                       # 记忆窗口大小
-```
-
-### 超时配置
-
-| 参数 | 值 | 说明 |
-|:---|:---:|:---|
-| 连接超时 | 60s | 建立连接最大等待 |
-| 读取超时 | 300s | AI 思考时间，需要充足 |
-| 写入超时 | 60s | 请求发送超时 |
-
-<br/>
-
-## 🧠 记忆系统原理
-
-```
-📨 用户消息
-    │
-    ▼
-┌────────────────────────────┐
-│  ChatMemoryService         │
-│  ┌──────────────────────┐  │
-│  │ 1. 查询 Redis 缓存   │  │──→ 命中 → 直接返回记忆窗口
-│  └──────────┬───────────┘  │
-│             │ 未命中        │
-│  ┌──────────▼───────────┐  │
-│  │ 2. 从 DB 加载历史     │  │
-│  └──────────┬───────────┘  │
-│             │               │
-│  ┌──────────▼───────────┐  │
-│  │ 3. JTokkit Token计数  │  │
-│  │    CL100K_BASE 编码   │  │
-│  └──────────┬───────────┘  │
-│             │               │
-│  ┌──────────▼───────────┐  │
-│  │ 4. 超限? → 摘要压缩   │  │──→ ChatSummaryService
-│  └──────────┬───────────┘  │
-│             │               │
-│  ┌──────────▼───────────┐  │
-│  │ 5. 写入 Redis 缓存    │  │
-│  └──────────────────────┘  │
-└────────────────────────────┘
-    │
-    ▼
-🤖 携带上下文发送至 AI 模型
-```
-
-<br/>
-
-## 🗄️ 数据库设计
-
-```
-┌──────────┐       ┌──────────────┐       ┌──────────────┐
-│  users   │───1:N─│ chat_session │───1:N─│ chat_message │
-│──────────│       │──────────────│       │──────────────│
-│ user_id  │       │ session_id   │       │ chat_id      │
-│ username │       │ user_id (FK) │       │ session_id   │
-│ email    │       │ title        │       │ chat_role    │
-│ phone    │       │ status       │       │ content      │
-│ userRole │       │ created_at   │       │ created_at   │
-└────┬─────┘       └──────────────┘       └──────────────┘
-     │
-     │1:N     ┌───────────────────────┐
-     └────────│ user_model_permission │
-              │───────────────────────│
-              │ user_id (FK)          │
-              │ model_code (FK)       │     ┌─────────────────────┐
-              │ enabled               │─────│ ai_model_definition │
-              └───────────────────────┘     │─────────────────────│
-                                            │ model_code          │
-              ┌───────────────────┐         │ display_name        │
-              │ ai_task_keyword   │         │ provider_code       │
-              │───────────────────│         │ api_model_name      │
-              │ keyword           │         │ level               │
-              │ task_type         │         │ local_model         │
-              │ enabled           │         └─────────────────────┘
-              └───────────────────┘
-```
-
-> 使用 **Liquibase** 进行数据库版本管理，变更记录位于 `src/main/resources/DB/changelog/`
->
-> 当前项目采用 **YAML-first** 维护方式：
-> - Spring Boot 运行入口使用 `db.changelog-master.yaml`
-> - 各子 changelog 也统一使用 `.yaml`
-> - 为了兼容历史 `DATABASECHANGELOG` 记录，各 YAML 文件仍保留原 `.xml` `logicalFilePath`
-> - 因此数据库里看到的 `filename` 仍可能是 `db.changelog-*.xml`，这是兼容设计，不代表运行时还在加载 XML 文件
-
-### Liquibase YAML-first 约定
-
-- 运行时主入口：`src/main/resources/DB/changelog/db.changelog-master.yaml`
-- 历史兼容锚点：各 YAML 文件首行的 `logicalFilePath: "DB/changelog/*.xml"`
-- 维护原则：
-  - 新增/修改变更请优先编辑 `.yaml`
-  - 不要随意修改已有 `changeSet id + author + logicalFilePath`
-  - 如果要排查校验和，请优先依据 `DATABASECHANGELOG.filename` 中保留的 `.xml` 逻辑路径来定位
-
-<br/>
-
-## 🛠️ 故障排除
-
-<details>
-<summary><b>❌ Connection refused — 连接被拒绝</b></summary>
-
-- 确认 Ollama 服务已启动：`ollama serve`
-- 若使用远程 GPU，检查 SSH 隧道：`ssh -L 11434:127.0.0.1:11434 -p 23 root@<your-host>`
-- 运行 `test_connection.bat` 自动检测连通性
-</details>
-
-<details>
-<summary><b>⏱️ SocketTimeoutException — 响应超时</b></summary>
-
-- 32B 模型首次推理较慢，耐心等待
-- 检查 GPU 显存是否充足
-- 适当增加读取超时配置
-</details>
-
-<details>
-<summary><b>🔍 模型未找到</b></summary>
+## 测试与 CI
 
 ```bash
-# 查看已安装模型
-ollama list
+# 全部测试（含需要基础设施的 @SpringBootTest，需本地起依赖）
+./mvnw test
 
-# 拉取缺失模型
-ollama pull deepseek-r1:8b
-```
-</details>
-
-<details>
-<summary><b>🐘 数据库连接失败</b></summary>
-
-- 确认 PostgreSQL 服务已启动
-- 检查 `application.yml` 中的数据库连接配置
-- 确保 Liquibase 变更已正确执行
-</details>
-
-<br/>
-
-## 🧪 测试
-
-```bash
-# 运行全部单元测试
-mvn test
-
-# 运行指定测试类
-mvn test -Dtest=ChatServiceRoutingTest
-
-# Windows 一键测试
-run_tests.bat
+# 仅跑无依赖的单元测试集（159 个，CI 同款）
+./mvnw -Pci test
 ```
 
-包含以下测试套件：
+- **GitHub Actions**（`.github/workflows/ci.yml`）：每次 push / PR 到 `master`、`dev` 自动用 JDK 17 构建并跑 `mvn -Pci clean verify`，产物上传为 artifact。
+- `ci` profile 排除依赖 PostgreSQL / Redis / Milvus / 实时模型端点的上下文测试与手动运行器，保证 CI 在无基础设施环境下稳定通过。
 
-| 测试类 | 覆盖范围 |
-|:---|:---|
-| `AiModelAccessServiceTest` | 模型访问权限验证 |
-| `AiTaskKeywordServiceTest` | 任务关键词分类 |
-| `ChatMemoryServiceTest` | 记忆窗口管理 |
-| `ChatServiceRoutingTest` | 智能路由策略 |
-| `ChatSummaryServiceTest` | 会话摘要压缩 |
-| `ConnectionExceptionTest` | 异常连接处理 |
+---
 
-<br/>
+## 路线图
 
-## 📚 相关文档
-
-| 文档 | 说明 |
-|:---|:---|
-| [CONFIGURATION.md](CONFIGURATION.md) | 完整配置参数说明 |
-| [HELP.md](HELP.md) | 帮助与常见问题 |
-| [DeployLog/](DeployLog/) | 部署日志记录 |
-
-<br/>
+- [ ] 引入 Spring Security + JWT 过滤链，替换当前轻量会话 Token（接口已通过 `CurrentUserService` 解耦，替换不影响业务层）
+- [ ] 技能 CLI 执行接入操作系统级沙箱
+- [ ] 工具调用审计异步化
+- [ ] RAG 重排（rerank）接入真实模型，向量检索默认化
 
 ---
 
 <div align="center">
 
-**🌿 Honghu AI** — 让每一次对话都有价值
-
-<small>© 2026 Honghu AI. All rights reserved.</small>
-
-<br/>
-
-[![Made with ❤️](https://img.shields.io/badge/Made%20with-❤️-red?style=flat-square)](https://github.com/your-org/honghu-ai)
-[![Spring Boot](https://img.shields.io/badge/Powered%20by-Spring%20Boot-6DB33F?style=flat-square&logo=springboot&logoColor=white)](https://spring.io)
-[![DeepSeek](https://img.shields.io/badge/AI%20by-DeepSeek%20R1-4A90D9?style=flat-square)](https://www.deepseek.com)
+**🦅 Honghu AI** — 把一套真实可用的 LLM 应用平台，完整地工程化落地。
 
 </div>

@@ -106,7 +106,7 @@ server:
 # Logging Configuration
 logging:
   level:
-    com.honghu.ut.test.ai.assigment.testdeepseekr1: DEBUG
+    com.honghu.ai.assigment: DEBUG
     org.springframework.ai.chat.metadata: INFO
     org.springframework.ai: INFO
   pattern:
@@ -150,16 +150,16 @@ app:
     # =========================
     # 默认兜底模型：当自动路由模型不可用时，优先退到这个模型。
     # 这里默认改成 DeepSeek 云端基础模型，确保本地没启动 Ollama 时仍然可以稳定兜底。
-    default-model: ${APP_AI_DEFAULT_MODEL:deepseek-chat}
+    default-model: ${APP_AI_DEFAULT_MODEL:deepseek-v4-flash}
     default-temperature: 0.7
     connection-health-check-interval: ${APP_AI_CONNECTION_HEALTH_CHECK_INTERVAL:30000}
 
     routing:
-      # 简单/复杂问题仍然优先走本地模型；
-      # 如果本地 Ollama 未启动，代码会自动切换到 local-model-fallback.fallback-model。
+      # 简单问题走 DeepSeek V4，复杂问题走 DeepSeek V4 Reasoner（均为云端）。
+      # 这些只是“按复杂度自动路由”的默认编码，必须是数据库中已存在且已授权的模型。
       simple-query-length-threshold: ${APP_AI_SIMPLE_QUERY_LENGTH_THRESHOLD:20}
-      simple-default-model: ${APP_AI_SIMPLE_DEFAULT_MODEL:deepseek-r1:8b}
-      complex-default-model: ${APP_AI_COMPLEX_DEFAULT_MODEL:deepseek-r1:32b}
+      simple-default-model: ${APP_AI_SIMPLE_DEFAULT_MODEL:deepseek-v4-flash}
+      complex-default-model: ${APP_AI_COMPLEX_DEFAULT_MODEL:deepseek-v4-pro}
 
     local-model-fallback:
       # 当路由命中本地 Ollama 模型，但本机并未启动 Ollama 时：
@@ -168,7 +168,7 @@ app:
       # 3. 即便路由阶段误判，真正调用本地失败时网关层还会再兜底一次
       enabled: ${APP_AI_LOCAL_MODEL_FALLBACK_ENABLED:true}
       local-provider-code: ${APP_AI_LOCAL_PROVIDER_CODE:ollama-local}
-      fallback-model: ${APP_AI_LOCAL_FALLBACK_MODEL:deepseek-chat}
+      fallback-model: ${APP_AI_LOCAL_FALLBACK_MODEL:deepseek-v4-flash}
       probe-before-route: ${APP_AI_LOCAL_MODEL_PROBE_BEFORE_ROUTE:true}
 
     timeout:
@@ -362,7 +362,7 @@ app:
       summary-trigger-rounds: ${CHAT_MEMORY_SUMMARY_TRIGGER_ROUNDS:20}
       # 中期记忆摘要默认直接走云端 DeepSeek 基础模型，
       # 避免摘要链路继续依赖本地 Ollama 是否启动。
-      summary-model: ${CHAT_MEMORY_SUMMARY_MODEL:deepseek-chat}
+      summary-model: ${CHAT_MEMORY_SUMMARY_MODEL:deepseek-v4-flash}
       summary-temperature: ${CHAT_MEMORY_SUMMARY_TEMPERATURE:0.2}
       summary-max-tokens: ${CHAT_MEMORY_SUMMARY_MAX_TOKENS:512}
       summary-max-characters: ${CHAT_MEMORY_SUMMARY_MAX_CHARACTERS:300}
@@ -391,6 +391,23 @@ app:
       queue-capacity: ${MEMORY_SUMMARY_ASYNC_QUEUE_CAPACITY:200}
       wait-for-tasks-to-complete-on-shutdown: ${MEMORY_SUMMARY_ASYNC_WAIT_ON_SHUTDOWN:true}
       await-termination-seconds: ${MEMORY_SUMMARY_ASYNC_AWAIT_TERMINATION_SECONDS:10}
+
+    # =========================
+    # MVC 异步线程池（SSE 流式聊天专用）
+    # - 替换 Spring MVC 默认的 SimpleAsyncTaskExecutor（无界、每请求新建线程，生产不可用）
+    # - SSE 线程是 I/O 密集型（等上游模型流式返回），故核心线程数可大于 CPU 核数
+    # - 有界 + 满则拒绝，做背压防止 OOM；详见 MvcAsyncConfig 注释
+    # =========================
+    mvc:
+      thread-name-prefix: ${MVC_ASYNC_THREAD_NAME_PREFIX:mvc-async-}
+      core-pool-size: ${MVC_ASYNC_CORE_POOL_SIZE:8}
+      max-pool-size: ${MVC_ASYNC_MAX_POOL_SIZE:32}
+      queue-capacity: ${MVC_ASYNC_QUEUE_CAPACITY:100}
+      keep-alive-seconds: ${MVC_ASYNC_KEEP_ALIVE_SECONDS:60}
+      allow-core-thread-timeout: ${MVC_ASYNC_ALLOW_CORE_TIMEOUT:true}
+      wait-for-tasks-to-complete-on-shutdown: ${MVC_ASYNC_WAIT_ON_SHUTDOWN:true}
+      await-termination-seconds: ${MVC_ASYNC_AWAIT_TERMINATION_SECONDS:30}
+      request-timeout-millis: ${MVC_ASYNC_REQUEST_TIMEOUT_MILLIS:600000}
 
   # =========================
   # AWS 云服务统一配置

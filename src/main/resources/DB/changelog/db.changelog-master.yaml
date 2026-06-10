@@ -107,6 +107,10 @@ databaseChangeLog:
       file: "DB/changelog/db.changelog-ai-models.yaml"
       relativeToChangelogFile: false
   - include:
+      # Provider 注册表（模型提供商配置 + 加密 API Key），供后台维护。
+      file: "DB/changelog/db.changelog-ai-provider.yaml"
+      relativeToChangelogFile: false
+  - include:
       # RAG 文档、分块、摄取事件等检索增强能力。
       file: "DB/changelog/db.changelog-rag.yaml"
       relativeToChangelogFile: false
