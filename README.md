@@ -104,48 +104,9 @@
 
 ## 系统架构
 
-```mermaid
-flowchart TB
-    Client["🌐 前端 / API 客户端<br/>(Vue 3 SPA · Swagger · SSE)"]
-
-    subgraph API["🎯 Controller 层"]
-        ChatC["ChatController"]
-        RagC["RagController"]
-        CapC["CapabilityController"]
-        AdminC["AdminController"]
-        UserC["UserController"]
-    end
-
-    subgraph SVC["⚙️ Service 层"]
-        Chat["ChatService<br/>结构化 / 流式 / 持久化"]
-        Gateway["AiChatModelGatewayService<br/>统一模型网关 + 配额 + 计费"]
-        Memory["ChatMemory / Summary<br/>三层记忆"]
-        Rag["RAG Pipeline<br/>摄取 + 检索"]
-        Skill["Skill / Capability<br/>MCP·Tool·CLI·Skills"]
-        Billing["Billing / Quota / Usage"]
-    end
-
-    subgraph INFRA["🗄️ 基础设施"]
-        PG[("🐘 PostgreSQL<br/>用户·会话·消息·计费")]
-        Redis[("🔴 Redis<br/>记忆窗口·锁·缓存")]
-        Milvus[("🔵 Milvus<br/>向量库")]
-        S3[("☁️ S3 / SQS<br/>对象存储·事件")]
-    end
-
-    subgraph MODELS["🤖 模型 Provider"]
-        Ollama["Ollama 本地<br/>DeepSeek R1"]
-        Cloud["OpenAI-兼容云<br/>DeepSeek·Qwen·Gemini·GPT"]
-    end
-
-    Client --> API --> SVC
-    Chat --> Gateway --> Ollama & Cloud
-    Chat --> Memory --> Redis
-    Rag --> Milvus
-    Rag --> S3
-    Skill --> Cloud
-    SVC --> PG
-    Billing --> PG
-```
+<p align="center">
+  <img src="docs/images/honghu-ai-system-architecture.svg" alt="Honghu AI 后端系统架构图" width="96%"/>
+</p>
 
 > 子系统详细架构图（已收录于 `docs/`，GitHub 可直接预览）：
 
