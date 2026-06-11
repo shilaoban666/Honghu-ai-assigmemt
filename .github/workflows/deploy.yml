@@ -1,0 +1,32 @@
+name: Deploy
+
+# 一键部署：在 GitHub 网页 Actions 页点 "Run workflow" 即可。
+# 通过 SSH 登录 EC2，拉取指定镜像 tag 并用生产 compose 重启。
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要部署的镜像 tag（如 v1.2.0 或 latest）'
+        required: true
+        default: latest
+
+jobs:
+  deploy:
+    name: SSH deploy to EC2
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/honghu-ai
+            export IMAGE_TAG="${{ inputs.tag }}"
+            # 从 GHCR 拉镜像（需在 EC2 上用只读 PAT 登录过，或镜像设为 public）
+            echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml pull app
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+            docker image prune -f

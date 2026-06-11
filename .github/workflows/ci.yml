@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ master, dev ]
+  pull_request:
+    branches: [ master, dev ]
+
+# Cancel an in-flight run when a newer commit is pushed to the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test (JDK 17)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      # The "ci" profile skips the @SpringBootTest context tests and the
+      # manual Ollama-tunnel runners, which need PostgreSQL / Redis / Milvus /
+      # a live model endpoint. Everything else (159 unit tests) runs here.
+      - name: Build & run unit tests
+        run: mvn -B -ntp -Pci clean verify
+
+      - name: Upload application jar
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: honghu-ai-jar
+          path: target/*.jar
+          if-no-files-found: ignore
+          retention-days: 7

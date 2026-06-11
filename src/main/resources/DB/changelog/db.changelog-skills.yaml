@@ -1,0 +1,584 @@
+databaseChangeLog:
+  # 技能商店一期建表。
+  #
+  # 这里一次性创建 Skill / Tool 二级模型所需的 6 张表：
+  # 1. skill：用户看到的“技能包”；
+  # 2. skill_tool：模型真正可调用的工具方法；
+  # 3. user_skill_install：用户安装了哪些技能以及私有配置；
+  # 4. session_skill_setting：某个会话启用了哪些技能；
+  # 5. tool_invocation_log：工具调用审计日志；
+  # 6. custom_skill_definition：用户上传的 OpenAPI/HTTP 自定义技能定义。
+  - changeSet:
+      id: "skills-001-create-skill-tables"
+      author: "codex"
+      changes:
+        # skill 是“技能容器表”。
+        #
+        # 一行代表一个能力包，例如“时间日期”“计算器”“Tavily 搜索”。
+        # UI 商店卡片、默认开启策略、MCP 元数据、权限门槛都挂在这里。
+        - createTable:
+            tableName: "skill"
+            columns:
+              - column:
+                  # 自增主键，供其他表用外键引用。
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  # 全局唯一技能 key，例如 time、math、mcp:tavily、custom:my-api。
+                  name: "skill_key"
+                  type: "VARCHAR(100)"
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  # 技能来源：BUILTIN、MCP、CUSTOM。
+                  name: "source"
+                  type: "VARCHAR(20)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 商店和会话开关里展示的中文名称。
+                  name: "display_name"
+                  type: "VARCHAR(200)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 技能简介，用于列表卡片和详情页概览。
+                  name: "description"
+                  type: "TEXT"
+              - column:
+                  # 图标 URL 或 emoji 文本；当前 seed 里先放 emoji。
+                  name: "icon_url"
+                  type: "VARCHAR(500)"
+              - column:
+                  # 技能分类，例如通用、业务、信息检索、开发。
+                  name: "category"
+                  type: "VARCHAR(50)"
+              - column:
+                  # 新会话是否默认启用；用户仍可关闭非 mandatory 技能。
+                  name: "default_enabled"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: false
+              - column:
+                  # 是否必装；必装技能会强制注入，前端显示锁定状态。
+                  name: "mandatory"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: false
+              - column:
+                  # 使用该技能所需最低角色，默认普通 USER 即可。
+                  name: "required_role"
+                  type: "VARCHAR(20)"
+                  defaultValue: "USER"
+              - column:
+                  # 技能版本，MCP/自定义技能详情页会展示。
+                  name: "version"
+                  type: "VARCHAR(20)"
+              - column:
+                  # 作者名称，主要给 MCP 市场和自定义技能展示。
+                  name: "author"
+                  type: "VARCHAR(100)"
+              - column:
+                  # 开源仓库或项目主页地址。
+                  name: "repo_url"
+                  type: "VARCHAR(500)"
+              - column:
+                  # License 信息，例如 MIT、Apache-2.0。
+                  name: "license"
+                  type: "VARCHAR(50)"
+              - column:
+                  # 市场评分，内置技能可为空。
+                  name: "rating"
+                  type: "DECIMAL(2,1)"
+              - column:
+                  # 下载量或安装量，用于 MCP 市场排序和展示。
+                  name: "downloads"
+                  type: "INT"
+                  defaultValueNumeric: 0
+              - column:
+                  # MCP 传输方式，例如 stdio、sse、streamable-http。
+                  name: "mcp_transport"
+                  type: "VARCHAR(20)"
+              - column:
+                  # MCP Server 远程连接地址。
+                  name: "mcp_endpoint"
+                  type: "VARCHAR(500)"
+              - column:
+                  # MCP stdio 安装命令，仅管理员/受控环境使用。
+                  name: "mcp_install_cmd"
+                  type: "TEXT"
+              - column:
+                  # MCP 所需环境变量 schema，例如需要哪些 API Key。
+                  name: "mcp_env_schema"
+                  type: "JSONB"
+              - column:
+                  # 管理员级全局开关，关闭后该技能不再出现在可用列表。
+                  name: "enabled"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+              - column:
+                  # 创建时间。
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+              - column:
+                  # 更新时间；seed upsert 时会刷新。
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - createIndex:
+            # 按来源筛选技能商店 Tab 时使用。
+            indexName: "idx_skill_source"
+            tableName: "skill"
+            columns:
+              - column:
+                  name: "source"
+        - createIndex:
+            # 按分类筛选技能时使用。
+            indexName: "idx_skill_category"
+            tableName: "skill"
+            columns:
+              - column:
+                  name: "category"
+        # skill_tool 是“模型可调用方法表”。
+        #
+        # 一个 Skill 可以包含多个 Tool，例如“计算器”包含 calculate/statistics。
+        # ChatService 最终注入模型的是这里描述的 ToolCallback，而不是 skill 表本身。
+        - createTable:
+            tableName: "skill_tool"
+            columns:
+              - column:
+                  # 自增主键。
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  # 所属技能 id；技能删除时工具定义级联删除。
+                  name: "skill_id"
+                  type: "BIGINT"
+                  constraints:
+                    nullable: false
+                    foreignKeyName: "fk_skill_tool_skill"
+                    referencedTableName: "skill"
+                    referencedColumnNames: "id"
+                    deleteCascade: true
+              - column:
+                  # 原始工具名，例如 calculate、now、tavily_search。
+                  name: "tool_name"
+                  type: "VARCHAR(200)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 全局唯一工具名，带来源和 skill key 前缀，避免不同技能同名工具冲突。
+                  name: "qualified_name"
+                  type: "VARCHAR(300)"
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  # 给 LLM 看的工具说明，越清楚模型越不容易误调用。
+                  name: "description"
+                  type: "TEXT"
+              - column:
+                  # JSON Schema 参数定义，来自 @NativeTool 反射或 MCP/OpenAPI 同步。
+                  name: "parameters_schema"
+                  type: "JSONB"
+              - column:
+                  # 工具危险等级：SAFE、CAUTION、DANGEROUS。
+                  name: "danger_level"
+                  type: "VARCHAR(20)"
+                  defaultValue: "SAFE"
+              - column:
+                  # 技能详情页工具列表排序。
+                  name: "sort_order"
+                  type: "INT"
+                  defaultValueNumeric: 0
+        # user_skill_install 记录“用户安装了哪些技能”。
+        #
+        # MCP 和自定义技能通常需要用户安装并填写 API Key；
+        # 内置技能也可以写入这里，表示用户主动加入“我的”列表。
+        - createTable:
+            tableName: "user_skill_install"
+            columns:
+              - column:
+                  # 自增主键。
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  # 用户 ID，当前项目用户主键为 VARCHAR(64)。
+                  name: "user_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 安装的技能 id。
+                  name: "skill_id"
+                  type: "BIGINT"
+                  constraints:
+                    nullable: false
+                    foreignKeyName: "fk_user_skill_install_skill"
+                    referencedTableName: "skill"
+                    referencedColumnNames: "id"
+              - column:
+                  # 用户私有配置，例如 API Key、endpoint、环境变量；生产应加密后再写入。
+                  name: "user_config"
+                  type: "JSONB"
+              - column:
+                  # 用户层面的安装开关；关闭后默认不参与会话可用技能计算。
+                  name: "enabled"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+              - column:
+                  # 安装时间。
+                  name: "installed_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - addUniqueConstraint:
+            # 同一用户不能重复安装同一个技能。
+            tableName: "user_skill_install"
+            columnNames: "user_id, skill_id"
+            constraintName: "uk_user_skill_install_user_skill"
+        # session_skill_setting 是“会话级技能开关表”。
+        #
+        # 这是防止 context 爆炸的关键：用户安装很多技能后，只把当前会话真正需要的技能注入模型。
+        - createTable:
+            tableName: "session_skill_setting"
+            columns:
+              - column:
+                  # 会话 ID，和 chat_session.session_id 类型保持一致。
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 本会话设置的技能 id。
+                  name: "skill_id"
+                  type: "BIGINT"
+                  constraints:
+                    nullable: false
+                    foreignKeyName: "fk_session_skill_setting_skill"
+                    referencedTableName: "skill"
+                    referencedColumnNames: "id"
+              - column:
+                  # 是否在本会话启用该技能。
+                  name: "enabled"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+        - addPrimaryKey:
+            # 一个会话对一个技能只保留一条开关记录。
+            tableName: "session_skill_setting"
+            columnNames: "session_id, skill_id"
+            constraintName: "pk_session_skill_setting"
+        # tool_invocation_log 是工具调用审计表。
+        #
+        # 所有模型触发的工具调用都可以记录到这里，方便侧边栏展示、问题排查、费用统计和安全审计。
+        - createTable:
+            tableName: "tool_invocation_log"
+            columns:
+              - column:
+                  # 自增主键。
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  # 调用工具的用户 ID；允许为空用于匿名或系统调用。
+                  name: "user_id"
+                  type: "VARCHAR(64)"
+              - column:
+                  # 调用发生的会话 ID。
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+              - column:
+                  # 关联消息 ID，后续接入消息表后可回溯是哪条消息触发工具。
+                  name: "message_id"
+                  type: "BIGINT"
+              - column:
+                  # 实际调用的全局工具名，例如 builtin__math__calculate。
+                  name: "tool_qualified_name"
+                  type: "VARCHAR(300)"
+              - column:
+                  # 工具所属技能 id，便于按技能统计调用量。
+                  name: "skill_id"
+                  type: "BIGINT"
+              - column:
+                  # 模型传给工具的参数 JSON。
+                  name: "arguments"
+                  type: "JSONB"
+              - column:
+                  # 工具结果预览，后端会截断，避免日志表塞入大对象。
+                  name: "result_preview"
+                  type: "TEXT"
+              - column:
+                  # 调用耗时，单位毫秒。
+                  name: "duration_ms"
+                  type: "INT"
+              - column:
+                  # 调用状态：SUCCESS、ERROR、DENIED 等。
+                  name: "status"
+                  type: "VARCHAR(20)"
+              - column:
+                  # 失败时的错误信息。
+                  name: "error_message"
+                  type: "TEXT"
+              - column:
+                  # 调用发生时间。
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - createIndex:
+            # 会话工具调用侧边栏按 session_id + created_at 倒序查询。
+            indexName: "idx_log_session"
+            tableName: "tool_invocation_log"
+            columns:
+              - column:
+                  name: "session_id"
+              - column:
+                  name: "created_at"
+                  descending: true
+        # custom_skill_definition 存用户上传的自定义技能定义。
+        #
+        # 第一阶段主要支持 OpenAPI 3 Schema；后续可扩展脚本型工具或受控 HTTP 工具。
+        - createTable:
+            tableName: "custom_skill_definition"
+            columns:
+              - column:
+                  # 自增主键。
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  # 对应 skill 表中的自定义技能记录。
+                  name: "skill_id"
+                  type: "BIGINT"
+                  constraints:
+                    nullable: false
+                    foreignKeyName: "fk_custom_skill_definition_skill"
+                    referencedTableName: "skill"
+                    referencedColumnNames: "id"
+              - column:
+                  # 定义类型，例如 OPENAPI_3、SCRIPT。
+                  name: "spec_type"
+                  type: "VARCHAR(20)"
+              - column:
+                  # OpenAPI YAML/JSON 或脚本文本。
+                  name: "spec_content"
+                  type: "TEXT"
+              - column:
+                  # 自定义 HTTP 工具的基础地址。
+                  name: "base_url"
+                  type: "VARCHAR(500)"
+              - column:
+                  # 自定义鉴权配置，例如 header 名、token 引用方式等。
+                  name: "auth_config"
+                  type: "JSONB"
+  # session_tool_approval 是“高风险工具会话级二次确认表”。
+  #
+  # ToolGuard 对 DANGEROUS 工具（当前主要是 CLI 工具）默认拒绝执行，
+  # 只有当前会话存在一条仍然有效（未过期）的审批记录时才放行。
+  # 这张表必须随技能模块一起建好，否则 SessionToolApproval 实体在
+  # ddl-auto=validate 下会因为找不到表而导致应用上下文启动失败。
+  - changeSet:
+      id: "skills-004-create-session-tool-approval"
+      author: "claude"
+      changes:
+        - createTable:
+            tableName: "session_tool_approval"
+            columns:
+              - column:
+                  # 自增主键。
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  # 授予审批的会话 ID，和 chat_session.session_id 类型保持一致。
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 被批准的全局工具名，例如 cli__git__run。
+                  name: "tool_qualified_name"
+                  type: "VARCHAR(300)"
+                  constraints:
+                    nullable: false
+              - column:
+                  # 授权人；后续接入二次确认 UI / 管理后台后写入。
+                  name: "approved_by"
+                  type: "VARCHAR(64)"
+              - column:
+                  # 可选过期时间；为空表示一直有效直到被显式删除。
+                  name: "expires_at"
+                  type: "TIMESTAMP"
+              - column:
+                  # 创建时间，用于审计和排查。
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - createIndex:
+            # ToolGuard 校验时按 (session_id, tool_qualified_name) 精确命中审批记录。
+            indexName: "idx_session_tool_approval_lookup"
+            tableName: "session_tool_approval"
+            columns:
+              - column:
+                  name: "session_id"
+              - column:
+                  name: "tool_qualified_name"
+  # 技能商店初始数据。
+  #
+  # 内置技能会在应用启动时由 BuiltinSkillRegistrar 再同步 tool 列表；
+  # 这里先 seed skill 容器本身，让前端商店和默认开关策略有基础数据。
+  - changeSet:
+      id: "skills-002-seed-marketplace"
+      author: "codex"
+      changes:
+        - sql:
+            # splitStatements=false 保证整个 INSERT ... ON CONFLICT 作为一段 SQL 执行。
+            splitStatements: false
+            sql: |
+              -- 插入内置技能和首批 MCP 市场占位技能。
+              -- ON CONFLICT 让 changelog 可以重复应用到已有环境时更新展示信息，而不是插入重复 key。
+              INSERT INTO skill (skill_key, source, display_name, description, default_enabled, mandatory, category, icon_url, required_role)
+              VALUES
+                -- time/user_context 是 mandatory=true：每个会话强制启用，前端应展示锁定态。
+                ('time', 'BUILTIN', '时间日期', '查询当前时间、日期、时区和相对日期', true, true, '通用', '⏰', 'USER'),
+                ('user_context', 'BUILTIN', '用户身份', '读取当前用户身份和角色上下文', true, true, '通用', '👤', 'USER'),
+                -- math/kb/session 是 default_enabled=true：新会话默认开启，但用户可以关闭。
+                ('math', 'BUILTIN', '计算器', '执行数学计算和基础统计', true, false, '通用', '🧮', 'USER'),
+                ('kb', 'BUILTIN', '知识库检索', '检索当前会话上传文档和知识库片段', true, false, '业务', '📚', 'USER'),
+                ('session', 'BUILTIN', '会话历史', '查询当前会话最近消息和上下文摘要', true, false, '业务', '💬', 'USER'),
+                -- 以下内置技能默认关闭，等工具实现稳定后由用户按需添加。
+                ('weather', 'BUILTIN', '天气', '实时天气查询预留技能', false, false, '生活', '🌤️', 'USER'),
+                ('http_fetch', 'BUILTIN', '网页抓取', '受控网页抓取预留技能', false, false, '通用', '🌐', 'USER'),
+                ('system_metrics', 'BUILTIN', '系统监控', '系统运行状态查询预留技能', false, false, '运维', '📈', 'ADMIN'),
+                ('format', 'BUILTIN', '格式转换', '文本和数据格式转换预留技能', false, false, '通用', '🧾', 'USER'),
+                -- MCP 市场技能默认只是“入驻市场”，不自动安装，也不默认注入会话。
+                ('mcp:tavily', 'MCP', 'Tavily 搜索', '网页搜索和内容提取 MCP Server', false, false, '信息检索', '🔍', 'USER'),
+                ('mcp:github', 'MCP', 'GitHub', 'GitHub 仓库、Issue 和协作 MCP Server', false, false, '开发', '🐙', 'USER')
+              ON CONFLICT (skill_key) DO UPDATE SET
+                -- 保持 key 不变，只刷新可展示字段和默认策略，避免破坏已安装关系。
+                source = EXCLUDED.source,
+                display_name = EXCLUDED.display_name,
+                description = EXCLUDED.description,
+                default_enabled = EXCLUDED.default_enabled,
+                mandatory = EXCLUDED.mandatory,
+                category = EXCLUDED.category,
+                icon_url = EXCLUDED.icon_url,
+                required_role = EXCLUDED.required_role,
+                updated_at = CURRENT_TIMESTAMP;
+
+  - changeSet:
+      id: "skills-003-seed-capability-kinds"
+      author: "codex"
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              INSERT INTO skill (
+                skill_key, source, display_name, description, default_enabled, mandatory,
+                category, icon_url, required_role, version, author, repo_url, license,
+                rating, downloads, mcp_transport, mcp_endpoint, mcp_install_cmd, enabled
+              )
+              VALUES
+                ('skill:document-writer', 'CLAUDE_SKILL', 'Document Writer Skill', '将写作、改写、提纲和长文档整理工作注入模型提示上下文。', false, false, 'writing', '技', 'USER', 'v1', 'Community', 'https://github.com/anthropics/skills', 'MIT', 4.6, 18000, null, null, null, true),
+                ('skill:data-analysis', 'CLAUDE_SKILL', 'Data Analysis Skill', '指导模型完成表格理解、指标解释、轻量分析和结果摘要。', false, false, 'analysis', '数', 'USER', 'v1', 'Community', 'https://github.com/anthropics/skills', 'MIT', 4.7, 22000, null, null, null, true),
+                ('cli:git', 'CLI', 'Git CLI', '受控读取 Git 状态、差异摘要和提交辅助信息。', false, false, 'developer', 'git', 'USER', 'v1', 'Local', null, 'local', 4.8, 0, null, null, 'git', true),
+                ('cli:npm', 'CLI', 'npm scripts', '受控列出和运行前端 npm 脚本，用于构建、测试和诊断。', false, false, 'developer', 'npm', 'USER', 'v1', 'Local', null, 'local', 4.6, 0, null, null, 'npm', true)
+              ON CONFLICT (skill_key) DO UPDATE SET
+                source = EXCLUDED.source,
+                display_name = EXCLUDED.display_name,
+                description = EXCLUDED.description,
+                default_enabled = EXCLUDED.default_enabled,
+                mandatory = EXCLUDED.mandatory,
+                category = EXCLUDED.category,
+                icon_url = EXCLUDED.icon_url,
+                required_role = EXCLUDED.required_role,
+                version = EXCLUDED.version,
+                author = EXCLUDED.author,
+                repo_url = EXCLUDED.repo_url,
+                license = EXCLUDED.license,
+                rating = EXCLUDED.rating,
+                downloads = EXCLUDED.downloads,
+                mcp_install_cmd = EXCLUDED.mcp_install_cmd,
+                enabled = EXCLUDED.enabled,
+                updated_at = CURRENT_TIMESTAMP;
+
+  # 技能描述本地化列。
+  #
+  # 全网爬取的 MCP / Claude Skill 描述是英文原文（registry/GitHub 作者所写）。
+  # description 始终保存英文原文（便于变更检测与重译），description_zh 保存爬取时
+  # 由 LLM 翻译出的中文。展示层优先使用 description_zh，没有时回退英文原文。
+  - changeSet:
+      id: "skills-005-add-description-zh"
+      author: "claude"
+      changes:
+        - addColumn:
+            tableName: "skill"
+            columns:
+              - column:
+                  # 中文翻译后的描述；内置/已是中文的技能可为空（展示层会回退 description）。
+                  name: "description_zh"
+                  type: "TEXT"
+
+  # 会话技能启用时间。
+  #
+  # 记录用户在某个会话「启用」某能力的时间，供前端在胶囊菜单/我的商店里
+  # 鼠标悬停时展示「启用于 X」。关闭时清空。
+  - changeSet:
+      id: "skills-006-add-session-enabled-at"
+      author: "claude"
+      changes:
+        - addColumn:
+            tableName: "session_skill_setting"
+            columns:
+              - column:
+                  name: "enabled_at"
+                  type: "TIMESTAMP"
+
+  # 国内 Claude 技能（精选）。
+  #
+  # Claude Skills 是 Anthropic 的提示词技能格式，没有「国内技能 registry」可爬，
+  # 所以这里精选若干高质量中文提示词技能直接入库，让技能商店的「技能」分类里也有国内内容。
+  # 描述本身就是中文，展示层会直接使用（无需翻译）。
+  - changeSet:
+      id: "skills-007-seed-cn-skills"
+      author: "claude"
+      changes:
+        - sql:
+            splitStatements: false
+            sql: |
+              INSERT INTO skill (
+                skill_key, source, display_name, description, default_enabled, mandatory,
+                category, icon_url, required_role, version, author, license, enabled
+              )
+              VALUES
+                ('skill:cn-writing', 'CLAUDE_SKILL', '中文写作', '高质量中文写作、改写、扩写、缩写与润色；明确受众与目的，结构清晰、表达地道。', false, false, 'Claude Skills', '写', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-xiaohongshu', 'CLAUDE_SKILL', '小红书文案', '生成符合小红书风格的标题与正文，含 emoji、分点和话题标签，突出种草感。', false, false, 'Claude Skills', '书', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-weekly-report', 'CLAUDE_SKILL', '周报助手', '把零散的工作记录整理成结构化中文周报：已完成、进行中、计划与风险。', false, false, 'Claude Skills', '报', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-contract-review', 'CLAUDE_SKILL', '合同审查', '审阅中文合同，定位权责、违约、付款等风险条款，并给出修改建议。', false, false, 'Claude Skills', '约', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-translation', 'CLAUDE_SKILL', '中英互译', '中英文之间的专业、地道翻译，保留术语与语气，标注不确定处。', false, false, 'Claude Skills', '译', 'USER', 'v1', '社区', 'MIT', true),
+                ('skill:cn-marketing', 'CLAUDE_SKILL', '营销文案', '中文广告语、电商详情页、活动与公众号推文创作，强调卖点与转化。', false, false, 'Claude Skills', '销', 'USER', 'v1', '社区', 'MIT', true)
+              ON CONFLICT (skill_key) DO UPDATE SET
+                source = EXCLUDED.source,
+                display_name = EXCLUDED.display_name,
+                description = EXCLUDED.description,
+                category = EXCLUDED.category,
+                icon_url = EXCLUDED.icon_url,
+                required_role = EXCLUDED.required_role,
+                version = EXCLUDED.version,
+                author = EXCLUDED.author,
+                license = EXCLUDED.license,
+                enabled = EXCLUDED.enabled,
+                updated_at = CURRENT_TIMESTAMP;

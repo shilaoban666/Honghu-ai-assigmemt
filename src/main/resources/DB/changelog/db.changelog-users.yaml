@@ -1,0 +1,103 @@
+databaseChangeLog:
+  # 保留原 XML logicalFilePath，确保历史变更集身份与 checksum 归属稳定。
+  - logicalFilePath: "DB/changelog/db.changelog-users.xml"
+  - changeSet:
+      id: "3"
+      author: "shilaoban"
+      comment: "创建用户表"
+      changes:
+        - createTable:
+            tableName: "users"
+            columns:
+              - column:
+                  name: "user_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "username"
+                  type: "VARCHAR(50)"
+                  constraints:
+                    nullable: false
+                    unique: true
+              - column:
+                  name: "nickname"
+                  type: "VARCHAR(100)"
+              - column:
+                  name: "phone"
+                  type: "VARCHAR(20)"
+                  constraints:
+                    unique: true
+              - column:
+                  name: "email"
+                  type: "VARCHAR(100)"
+                  constraints:
+                    unique: true
+              - column:
+                  name: "password"
+                  type: "VARCHAR(256)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "gender"
+                  type: "VARCHAR(10)"
+                  defaultValue: "OTHER"
+              - column:
+                  name: "user_status"
+                  type: "VARCHAR(20)"
+                  defaultValue: "ACTIVE"
+              - column:
+                  name: "home_address"
+                  type: "VARCHAR(500)"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: "idx_users_username"
+            tableName: "users"
+            columns:
+              - column:
+                  name: "username"
+        - createIndex:
+            indexName: "idx_users_phone"
+            tableName: "users"
+            columns:
+              - column:
+                  name: "phone"
+        - createIndex:
+            indexName: "idx_users_email"
+            tableName: "users"
+            columns:
+              - column:
+                  name: "email"
+        - createIndex:
+            indexName: "idx_users_status"
+            tableName: "users"
+            columns:
+              - column:
+                  name: "user_status"
+
+  - changeSet:
+      id: "3-20260519-user-avatar"
+      author: "codex"
+      comment: "为用户表增加头像 S3 元数据"
+      changes:
+        - addColumn:
+            tableName: "users"
+            columns:
+              - column:
+                  name: "avatar_object_key"
+                  type: "VARCHAR(512)"
+              - column:
+                  name: "avatar_content_type"
+                  type: "VARCHAR(100)"

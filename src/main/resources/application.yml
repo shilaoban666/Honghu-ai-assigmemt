@@ -1,29 +1,84 @@
 spring:
+  cloud:
+    aws:
+      region:
+        # 这里不再直接重复绑定 AWS_REGION，而是直接桥接到 app.aws.region。
+        # 这样 region 只在一处维护：业务代码和 Spring Cloud AWS 自动配置都共用同一个真实值。
+        static: ${app.aws.region:us-east-1}
+      sqs:
+        # 这里保留是因为它控制的是 Spring Cloud AWS 的 @SqsListener 基础设施。
+        # 但真正的开关来源统一收敛到 app.aws.sqs.enabled，避免同一个布尔值写两遍后配错。
+        enabled: ${app.aws.sqs.enabled:true}
+
   application:
     name: testDeepseekR1
-  
+
   # 静态资源配置
   web:
     resources:
       static-locations: classpath:/static/
       cache:
         period: 3600
-  
+
   # Spring AI Ollama Configuration
   ai:
     ollama:
-      base-url: http://117.50.195.175:11434
+      # 本地默认模型统一走 localhost；外部模型由 app.ai.providers 负责
+      base-url: ${OLLAMA_LOCAL_BASE_URL:http://localhost:11434}
       chat:
         enabled: true
         options:
           temperature: 0.7
           top-p: 0.9
+      embedding:
+        enabled: false
+
+    openai:
+      base-url: ${DASHSCOPE_BASE_URL:${app.ai.providers.aliyun.base-url:https://dashscope.aliyuncs.com/compatible-mode}}
+      api-key: ${ALIYUN_API_KEY:${app.ai.providers.aliyun.api-key:}}
+      chat:
+        enabled: false
+      embedding:
+        enabled: ${SPRING_AI_OPENAI_EMBEDDING_ENABLED:false}
+        options:
+          model: ${EMBEDDING_MODEL:text-embedding-v3}
+          dimensions: ${EMBEDDING_DIMENSIONS:1024}
+      image:
+        enabled: false
+      audio:
+        speech:
+          enabled: false
+        transcription:
+          enabled: false
+
+    vectorstore:
+      milvus:
+        client:
+          host: ${MILVUS_HOST:localhost}
+          port: ${MILVUS_PORT:19530}
+          username: ${MILVUS_USERNAME:root}
+          password: ${MILVUS_PASSWORD:Milvus}
+        database-name: ${MILVUS_DATABASE:default}
+        collection-name: ${MILVUS_COLLECTION:rag_chunks_qwen_v3_1024}
+        embedding-dimension: ${EMBEDDING_DIMENSIONS:1024}
+        index-type: IVF_FLAT
+        metric-type: COSINE
+        initialize-schema: ${MILVUS_INITIALIZE_SCHEMA:false}
 
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:postgres}
     username: ${DB_USERNAME:postgres}
     password: ${DB_PASSWORD:12345}
     driver-class-name: org.postgresql.Driver
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
+      password: ${REDIS_PASSWORD:12345}
+      timeout: 2s
+      repositories:
+        enabled: false
   jpa:
     hibernate:
       ddl-auto: validate
@@ -33,7 +88,10 @@ spring:
         format_sql: true
         dialect: org.hibernate.dialect.PostgreSQLDialect
   liquibase:
-    change-log: classpath:DB/changelog/db.changelog-master.xml
+    # 主入口改为 YAML，便于后续维护；
+    # 各 YAML changelog 内仍保留原 XML logicalFilePath，
+    # 这样不会改变 Liquibase 已执行变更集的身份与 checksum 归属。
+    change-log: classpath:DB/changelog/db.changelog-master.yaml
     enabled: true
 
 # Server Configuration
@@ -48,7 +106,7 @@ server:
 # Logging Configuration
 logging:
   level:
-    com.honghu.ut.test.ai.assigment.testdeepseekr1: DEBUG
+    com.honghu.ai.assigment: DEBUG
     org.springframework.ai.chat.metadata: INFO
     org.springframework.ai: INFO
   pattern:
@@ -83,8 +141,36 @@ springdoc:
 # Custom Application Properties
 app:
   ai:
-    default-model: deepseek-r1:8b
+    # =========================
+    # AI 模型路由与 provider 配置
+    # - default-model: 默认兜底模型编码
+    # - routing: 自动路由时，简单/复杂问题默认命中的模型编码
+    # - providers: 不同模型提供商的 base-url / key / header 配置
+    #   其中 ollama-local 为本地 localhost 模型，不使用 API Key
+    # =========================
+    # 默认兜底模型：当自动路由模型不可用时，优先退到这个模型。
+    # 这里默认改成 DeepSeek 云端基础模型，确保本地没启动 Ollama 时仍然可以稳定兜底。
+    default-model: ${APP_AI_DEFAULT_MODEL:deepseek-v4-flash}
     default-temperature: 0.7
+    connection-health-check-interval: ${APP_AI_CONNECTION_HEALTH_CHECK_INTERVAL:30000}
+
+    routing:
+      # 简单问题走 DeepSeek V4，复杂问题走 DeepSeek V4 Reasoner（均为云端）。
+      # 这些只是“按复杂度自动路由”的默认编码，必须是数据库中已存在且已授权的模型。
+      simple-query-length-threshold: ${APP_AI_SIMPLE_QUERY_LENGTH_THRESHOLD:20}
+      simple-default-model: ${APP_AI_SIMPLE_DEFAULT_MODEL:deepseek-v4-flash}
+      complex-default-model: ${APP_AI_COMPLEX_DEFAULT_MODEL:deepseek-v4-pro}
+
+    local-model-fallback:
+      # 当路由命中本地 Ollama 模型，但本机并未启动 Ollama 时：
+      # 1. 路由阶段会先探测一次本地可用性
+      # 2. 若确认不可用，则自动切换到 fallback-model
+      # 3. 即便路由阶段误判，真正调用本地失败时网关层还会再兜底一次
+      enabled: ${APP_AI_LOCAL_MODEL_FALLBACK_ENABLED:true}
+      local-provider-code: ${APP_AI_LOCAL_PROVIDER_CODE:ollama-local}
+      fallback-model: ${APP_AI_LOCAL_FALLBACK_MODEL:deepseek-v4-flash}
+      probe-before-route: ${APP_AI_LOCAL_MODEL_PROBE_BEFORE_ROUTE:true}
+
     timeout:
       seconds: 300
     retry:
@@ -96,3 +182,349 @@ app:
       connect-timeout: 120000
       read-timeout: 600000
       keep-alive: true
+
+    providers:
+      # 本地默认模型：直接走 localhost / Ollama，不需要 API Key
+      ollama-local:
+        type: OLLAMA_LOCAL
+        enabled: true
+        base-url: ${OLLAMA_LOCAL_BASE_URL:http://localhost:11434}
+        chat-completions-path: /api/chat
+        use-api-key: false
+
+      # 以下 provider 默认按“外部模型 + API Key”处理。
+      # 如果你使用的是统一聚合平台 / OpenAI-compatible 网关，通常只需要：
+      # 1. 配 base-url
+      # 2. 配 api-key
+      # 3. 保持 /v1/chat/completions 或对应 chat-completions-path
+      #
+      # 特别说明：
+      # - DeepSeek 平台申请到的是 API Key（通常是 sk-...），不是 SSH Key。
+      # - 对 DeepSeek 官方平台，常见配置就是：base-url + API Key。
+      # - 对其他模型，如果你也是通过统一聚合平台接入，通常也同样是 base-url + API Key。
+      # - 如果你是直连某厂商官方平台，而协议不是 OpenAI-compatible，
+      #   则需要把对应 provider 的 path/header 配成该厂商要求的值。
+      # 暂时禁用 anthropic 模型（API 余额不足）
+      anthropic:
+        type: OPENAI_COMPATIBLE
+        enabled: false
+        base-url: ${ANTHROPIC_BASE_URL:https://api.anthropic.com}
+        chat-completions-path: ${ANTHROPIC_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${ANTHROPIC_API_KEY:}
+        api-key-header: ${ANTHROPIC_API_KEY_HEADER:Authorization}
+        api-key-prefix: ${ANTHROPIC_API_KEY_PREFIX:Bearer }
+
+      gemini:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${GEMINI_BASE_URL:https://generativelanguage.googleapis.com}
+        chat-completions-path: ${GEMINI_CHAT_COMPLETIONS_PATH:/v1beta/openai/chat/completions}
+        use-api-key: true
+        api-key: ${GEMINI_API_KEY:}
+        api-key-header: ${GEMINI_API_KEY_HEADER:Authorization}
+        api-key-prefix: ${GEMINI_API_KEY_PREFIX:Bearer }
+
+      # 暂时禁用 nano-banana 模型
+      nano-banana:
+        type: OPENAI_COMPATIBLE
+        enabled: false
+        base-url: ${NANO_BANANA_BASE_URL:https://api.nanobanana.example.com}
+        chat-completions-path: ${NANO_BANANA_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${NANO_BANANA_API_KEY:}
+
+      openai:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+        chat-completions-path: ${OPENAI_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${OPENAI_API_KEY:}
+
+      deepseek-cloud:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        # DeepSeek 官方平台配置。
+        # 这里故意只保留环境变量占位，不把真实密钥写进仓库：
+        # 1. 避免误提交后触发 GitHub push protection / secret scanning；
+        # 2. 避免本地、测试、生产环境共用同一把密钥；
+        # 3. 便于通过系统环境变量或启动脚本按环境注入不同凭证。
+        base-url: ${DEEPSEEK_CLOUD_BASE_URL:https://api.deepseek.com}
+        chat-completions-path: ${DEEPSEEK_CLOUD_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${DEEPSEEK_CLOUD_API_KEY:}
+
+      xai:
+        type: OPENAI_COMPATIBLE
+        enabled: false
+        base-url: ${XAI_BASE_URL:https://api.x.ai}
+        chat-completions-path: ${XAI_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${XAI_API_KEY:}
+
+      moonshot:
+        type: OPENAI_COMPATIBLE
+        enabled: false
+        base-url: ${MOONSHOT_BASE_URL:https://api.moonshot.cn}
+        chat-completions-path: ${MOONSHOT_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${MOONSHOT_API_KEY:}
+
+      minimax:
+        type: OPENAI_COMPATIBLE
+        enabled: false
+        base-url: ${MINIMAX_BASE_URL:https://api.minimax.chat}
+        chat-completions-path: ${MINIMAX_CHAT_COMPLETIONS_PATH:/v1/text/chatcompletion_v2}
+        use-api-key: true
+        api-key: ${MINIMAX_API_KEY:}
+        api-key-header: ${MINIMAX_API_KEY_HEADER:Authorization}
+        api-key-prefix: ${MINIMAX_API_KEY_PREFIX:Bearer }
+
+      zhipu:
+        type: OPENAI_COMPATIBLE
+        enabled: false
+        base-url: ${ZHIPU_BASE_URL:https://open.bigmodel.cn}
+        chat-completions-path: ${ZHIPU_CHAT_COMPLETIONS_PATH:/api/paas/v4/chat/completions}
+        use-api-key: true
+        api-key: ${ZHIPU_API_KEY:}
+
+      # 暂时禁用 mimo 模型
+      mimo:
+        type: OPENAI_COMPATIBLE
+        enabled: false
+        base-url: ${MIMO_BASE_URL:https://api.mimo.example.com}
+        chat-completions-path: ${MIMO_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${MIMO_API_KEY:}
+
+      # 阿里云通义千问（Qwen）模型
+      aliyun:
+        type: OPENAI_COMPATIBLE
+        enabled: true
+        base-url: ${ALIYUN_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode}
+        chat-completions-path: ${ALIYUN_CHAT_COMPLETIONS_PATH:/v1/chat/completions}
+        use-api-key: true
+        api-key: ${ALIYUN_API_KEY:}
+
+  # =========================
+  # 聊天提示词与流式日志配置
+  # - 默认系统提示词从 resources/prompts 中读取
+  # - 启动时一次性加载到内存，运行期直接复用
+  # - streaming.log 用于控制流式输出调试日志
+  # =========================
+  chat:
+    streaming:
+      log:
+        enabled: ${CHAT_STREAMING_LOG_ENABLED:true}
+
+    prompt:
+      # ---- 全局默认系统提示词 ----
+      default-system-prompt-location: ${CHAT_DEFAULT_SYSTEM_PROMPT_LOCATION:classpath:prompts/default-system-prompt.txt}
+
+      # ---- 不同任务类型的默认系统提示词 ----
+      task-type-prompt-locations:
+        CODE: ${CHAT_TASK_TYPE_PROMPT_CODE:classpath:prompts/tasks/code-system-prompt.txt}
+        DESIGN: ${CHAT_TASK_TYPE_PROMPT_DESIGN:classpath:prompts/tasks/design-system-prompt.txt}
+        TEXT: ${CHAT_TASK_TYPE_PROMPT_TEXT:classpath:prompts/tasks/text-system-prompt.txt}
+        DATA_PROCESSING: ${CHAT_TASK_TYPE_PROMPT_DATA_PROCESSING:classpath:prompts/tasks/data-processing-system-prompt.txt}
+        ANALYSIS: ${CHAT_TASK_TYPE_PROMPT_ANALYSIS:classpath:prompts/tasks/analysis-system-prompt.txt}
+
+      # ---- 第二层中期记忆：摘要模型提示词模板 ----
+      session-summary-system-prompt-location: ${CHAT_SESSION_SUMMARY_SYSTEM_PROMPT_LOCATION:classpath:prompts/summary/session-summary-system-prompt.txt}
+      user-profile-system-prompt-location: ${CHAT_USER_PROFILE_SYSTEM_PROMPT_LOCATION:classpath:prompts/summary/user-profile-system-prompt.txt}
+      session-summary-wrapper-prompt-location: ${CHAT_SESSION_SUMMARY_WRAPPER_PROMPT_LOCATION:classpath:prompts/summary/session-summary-wrapper.txt}
+      user-profile-wrapper-prompt-location: ${CHAT_USER_PROFILE_WRAPPER_PROMPT_LOCATION:classpath:prompts/summary/user-profile-wrapper.txt}
+      session-update-user-prompt-location: ${CHAT_SESSION_UPDATE_USER_PROMPT_LOCATION:classpath:prompts/summary/session-update-user-prompt.txt}
+      session-existing-summary-block-prompt-location: ${CHAT_SESSION_EXISTING_SUMMARY_BLOCK_PROMPT_LOCATION:classpath:prompts/summary/session-existing-summary-block.txt}
+      session-merge-user-prompt-location: ${CHAT_SESSION_MERGE_USER_PROMPT_LOCATION:classpath:prompts/summary/session-merge-user-prompt.txt}
+      session-chunk-item-prompt-location: ${CHAT_SESSION_CHUNK_ITEM_PROMPT_LOCATION:classpath:prompts/summary/session-chunk-item.txt}
+      user-profile-aggregation-user-prompt-location: ${CHAT_USER_PROFILE_AGGREGATION_USER_PROMPT_LOCATION:classpath:prompts/summary/user-profile-aggregation-user-prompt.txt}
+      user-profile-session-item-prompt-location: ${CHAT_USER_PROFILE_SESSION_ITEM_PROMPT_LOCATION:classpath:prompts/summary/user-profile-session-item.txt}
+
+    # =========================
+    # 第一层 + 第二层记忆配置
+    # 第一层：Redis 短期记忆滑动窗口
+    # 第二层：摘要压缩后的会话中期记忆 + 用户主体画像
+    # =========================
+    memory:
+      # ---- 第一层短期记忆：Prompt Token 预算 ----
+      prompt-token-limit: ${CHAT_MEMORY_PROMPT_TOKEN_LIMIT:4000}
+      minimum-history-tokens: ${CHAT_MEMORY_MIN_HISTORY_TOKENS:256}
+
+      # ---- 第一层短期记忆：Redis 工作集与回源修复 ----
+      redis-ttl-minutes: ${CHAT_MEMORY_REDIS_TTL_MINUTES:30}
+      redis-key-prefix: ${CHAT_MEMORY_REDIS_KEY_PREFIX:chat:memory:}
+      fallback-to-database-on-miss: ${CHAT_MEMORY_FALLBACK_TO_DB:true}
+      rebuild-lock-seconds: ${CHAT_MEMORY_REBUILD_LOCK_SECONDS:15}
+
+      # ---- 第二层中期记忆：触发条件与摘要模型 ----
+      summary-trigger-rounds: ${CHAT_MEMORY_SUMMARY_TRIGGER_ROUNDS:20}
+      # 中期记忆摘要默认直接走云端 DeepSeek 基础模型，
+      # 避免摘要链路继续依赖本地 Ollama 是否启动。
+      summary-model: ${CHAT_MEMORY_SUMMARY_MODEL:deepseek-v4-flash}
+      summary-temperature: ${CHAT_MEMORY_SUMMARY_TEMPERATURE:0.2}
+      summary-max-tokens: ${CHAT_MEMORY_SUMMARY_MAX_TOKENS:512}
+      summary-max-characters: ${CHAT_MEMORY_SUMMARY_MAX_CHARACTERS:300}
+      summary-context-token-limit: ${CHAT_MEMORY_SUMMARY_CONTEXT_TOKEN_LIMIT:4000}
+
+      # ---- 第二层中期记忆：Redis 摘要缓存与并发控制 ----
+      session-summary-redis-key-prefix: ${CHAT_MEMORY_SESSION_SUMMARY_REDIS_KEY_PREFIX:chat:summary:session:}
+      user-profile-redis-key-prefix: ${CHAT_MEMORY_USER_PROFILE_REDIS_KEY_PREFIX:chat:summary:user:}
+      summary-redis-ttl-hours: ${CHAT_MEMORY_SUMMARY_REDIS_TTL_HOURS:720}
+      summary-lock-seconds: ${CHAT_MEMORY_SUMMARY_LOCK_SECONDS:60}
+
+      # ---- 第二层中期记忆：执行模式与用户画像窗口 ----
+      summary-async-enabled: ${CHAT_MEMORY_SUMMARY_ASYNC_ENABLED:true}
+      user-profile-session-window: ${CHAT_MEMORY_USER_PROFILE_SESSION_WINDOW:10}
+
+  # =========================
+  # 中期记忆异步线程池配置
+  # - 专门服务于摘要压缩与用户画像聚合
+  # - 避免与 Web 请求线程池相互争抢资源
+  # =========================
+  async:
+    memory-summary:
+      thread-name-prefix: ${MEMORY_SUMMARY_ASYNC_THREAD_NAME_PREFIX:memory-summary-}
+      core-pool-size: ${MEMORY_SUMMARY_ASYNC_CORE_POOL_SIZE:2}
+      max-pool-size: ${MEMORY_SUMMARY_ASYNC_MAX_POOL_SIZE:4}
+      queue-capacity: ${MEMORY_SUMMARY_ASYNC_QUEUE_CAPACITY:200}
+      wait-for-tasks-to-complete-on-shutdown: ${MEMORY_SUMMARY_ASYNC_WAIT_ON_SHUTDOWN:true}
+      await-termination-seconds: ${MEMORY_SUMMARY_ASYNC_AWAIT_TERMINATION_SECONDS:10}
+
+    # =========================
+    # MVC 异步线程池（SSE 流式聊天专用）
+    # - 替换 Spring MVC 默认的 SimpleAsyncTaskExecutor（无界、每请求新建线程，生产不可用）
+    # - SSE 线程是 I/O 密集型（等上游模型流式返回），故核心线程数可大于 CPU 核数
+    # - 有界 + 满则拒绝，做背压防止 OOM；详见 MvcAsyncConfig 注释
+    # =========================
+    mvc:
+      thread-name-prefix: ${MVC_ASYNC_THREAD_NAME_PREFIX:mvc-async-}
+      core-pool-size: ${MVC_ASYNC_CORE_POOL_SIZE:8}
+      max-pool-size: ${MVC_ASYNC_MAX_POOL_SIZE:32}
+      queue-capacity: ${MVC_ASYNC_QUEUE_CAPACITY:100}
+      keep-alive-seconds: ${MVC_ASYNC_KEEP_ALIVE_SECONDS:60}
+      allow-core-thread-timeout: ${MVC_ASYNC_ALLOW_CORE_TIMEOUT:true}
+      wait-for-tasks-to-complete-on-shutdown: ${MVC_ASYNC_WAIT_ON_SHUTDOWN:true}
+      await-termination-seconds: ${MVC_ASYNC_AWAIT_TERMINATION_SECONDS:30}
+      request-timeout-millis: ${MVC_ASYNC_REQUEST_TIMEOUT_MILLIS:600000}
+
+  # =========================
+  # AWS 云服务统一配置
+  # - 支持 AWS 原生服务和兼容协议的替代品（MinIO / LocalStack）
+  # - S3: 对象存储（文件上传、预签名 URL）
+  # - SQS: 消息队列（异步任务处理）
+  # =========================
+  aws:
+    profile: ${AWS_PROFILE:honghu-developer}
+    region: ${AWS_REGION:us-east-1}
+
+    # ---- S3 对象存储 ----
+    s3:
+      enabled: ${AWS_S3_ENABLED:true}
+      uploaded-bucket: ${AWS_S3_BUCKET:honghu-ai-document-upload}
+      avatar-bucket: ${AWS_S3_AVATAR_BUCKET:honghu-ai-avatar}
+      presigned-url-expiration-minutes: ${AWS_S3_PRESIGNED_URL_EXPIRATION_MINUTES:30}
+
+    # ---- SQS 消息队列 ----
+    sqs:
+      # 这是应用侧唯一真实的 SQS 总开关：
+      # 1. 我们自己的 AwsConfig / AwsManager 依赖它来创建 SqsClient / SqsAsyncClient
+      # 2. 上面的 spring.cloud.aws.sqs.enabled 也会桥接到这里，驱动 @SqsListener 基础设施
+      # 当前按你的诉求改成默认开启；如果某些环境不想连 SQS，再显式传 AWS_SQS_ENABLED=false 即可。
+      enabled: ${AWS_SQS_ENABLED:true}
+      endpoint: ${AWS_SQS_ENDPOINT:}
+      # 以下两个参数当前主要保留给手工 AWS SDK 调用；
+      # 文档上传监听已经改为 @SqsListener，不再直接读取它们。
+      visibility-timeout-seconds: ${AWS_SQS_VISIBILITY_TIMEOUT:30}
+      wait-time-seconds: ${AWS_SQS_WAIT_TIME:20}
+
+  # =========================
+  # 简单 RAG 文档摄取配置
+  # 目标链路：S3 上传完成 -> SQS 收到事件 -> 后端拉取文件 -> 抽取文本 -> 分块落库
+  # 当前版本先支持 txt / md / json / xml / csv / pdf
+  # 图片 OCR、Office 深度解析、向量库召回后续再逐步扩展
+  # =========================
+  rag:
+    # 整套 RAG 基础能力总开关
+    enabled: ${APP_RAG_ENABLED:true}
+
+    listener:
+      # SQS 监听器开关
+      enabled: ${APP_RAG_LISTENER_ENABLED:true}
+      # 监听的 SQS 队列名称；当前由 @SqsListener 直接使用
+      queue-name: ${APP_RAG_LISTENER_QUEUE_NAME:honghu-ai-document-upload-received}
+
+    ingestion:
+      # 单个文件的最大处理大小（字节）
+      max-object-size-bytes: ${APP_RAG_INGESTION_MAX_OBJECT_SIZE_BYTES:20971520}
+      # 当前简单版真正支持抽取文本的扩展名
+      supported-extensions: ${APP_RAG_INGESTION_SUPPORTED_EXTENSIONS:txt,md,json,xml,csv,pdf,png,jpeg,jpg,gif,doc,docx,ppt,pptx,xls,xlsx}
+      # 每个 chunk 目标字符数
+      chunk-size: ${APP_RAG_INGESTION_CHUNK_SIZE:800}
+      # 相邻 chunk 的重叠字符数
+      chunk-overlap: ${APP_RAG_INGESTION_CHUNK_OVERLAP:120}
+      # 单文档最大分块数
+      max-chunks-per-document: ${APP_RAG_INGESTION_MAX_CHUNKS_PER_DOCUMENT:200}
+      # 最小有效 chunk 长度
+      min-chunk-length: ${APP_RAG_INGESTION_MIN_CHUNK_LENGTH:80}
+      # 抽取文本最大保留字符数
+      max-extracted-characters: ${APP_RAG_INGESTION_MAX_EXTRACTED_CHARACTERS:100000}
+
+    retrieval:
+      # 检索总开关；mode=keyword 保持旧链路，mode=vector 切到 Milvus
+      enabled: ${APP_RAG_RETRIEVAL_ENABLED:true}
+      mode: ${APP_RAG_RETRIEVAL_MODE:keyword}
+      similarity-threshold: ${APP_RAG_RETRIEVAL_SIM_THRESHOLD:0.55}
+      # 每次最多返回多少个相关片段
+      top-k: ${APP_RAG_RETRIEVAL_TOP_K:4}
+      # 先从数据库拿多少个候选 chunk 参与打分
+      candidate-limit: ${APP_RAG_RETRIEVAL_CANDIDATE_LIMIT:80}
+      # 拼接给大模型前，最多保留多少字符的检索上下文
+      max-context-characters: ${APP_RAG_RETRIEVAL_MAX_CONTEXT_CHARACTERS:3000}
+      # 关键词最短长度
+      min-keyword-length: ${APP_RAG_RETRIEVAL_MIN_KEYWORD_LENGTH:2}
+
+      # ── 作用域 ──
+      scope:
+        # P2: 默认 attachment_chat_first（P1 已验证 session_only 兼容）
+        default: ${APP_RAG_SCOPE_DEFAULT:attachment_chat_first}
+        fallback-min-hits: ${APP_RAG_SCOPE_FALLBACK_MIN_HITS:2}
+        fallback-min-score: ${APP_RAG_SCOPE_FALLBACK_MIN_SCORE:0.1}
+        session-penalty-factor: ${APP_RAG_SCOPE_SESSION_PENALTY:0.85}
+
+      # ── Fusion ──
+      fusion:
+        enabled: ${APP_RAG_FUSION_ENABLED:false}
+        algorithm: rrf
+        rrf-k: ${APP_RAG_FUSION_RRF_K:60}
+        candidate-limit-after-fusion: ${APP_RAG_FUSION_CANDIDATE_LIMIT:20}
+
+      # ── Rerank ──
+      rerank:
+        enabled: ${APP_RAG_RERANK_ENABLED:false}
+        implementation: ${APP_RAG_RERANK_IMPL:noop}
+        candidate-limit: ${APP_RAG_RERANK_CANDIDATE_LIMIT:10}
+        timeout-ms: ${APP_RAG_RERANK_TIMEOUT_MS:5000}
+
+    # ── Query Rewrite ──
+    query-rewrite:
+      enabled: ${APP_RAG_QUERY_REWRITE_ENABLED:false}
+      max-variants: ${APP_RAG_QUERY_REWRITE_MAX_VARIANTS:3}
+      pronoun-resolve-enabled: ${APP_RAG_QUERY_REWRITE_PRONOUN_RESOLVE:false}
+
+    # ── Augmentor ──
+    augmentor:
+      dedup-enabled: ${APP_RAG_AUGMENTOR_DEDUP:true}
+      compress-enabled: ${APP_RAG_AUGMENTOR_COMPRESS:true}
+      citation-enabled: ${APP_RAG_AUGMENTOR_CITATION:true}
+      budget-enabled: ${APP_RAG_AUGMENTOR_BUDGET:true}
+      diversity-enabled: ${APP_RAG_AUGMENTOR_DIVERSITY:false}
+      reorder-enabled: ${APP_RAG_AUGMENTOR_REORDER:false}
+      token-budget: ${APP_RAG_AUGMENTOR_TOKEN_BUDGET:1500}
+
+    # ── Observability ──
+    observability:
+      metrics-enabled: ${APP_RAG_OBSERVABILITY_METRICS:true}
+      log-detail-level: ${APP_RAG_OBSERVABILITY_LOG_LEVEL:summary}
+

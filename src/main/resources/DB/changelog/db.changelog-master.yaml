@@ -1,0 +1,124 @@
+databaseChangeLog:
+  # 运行时入口已经切换到 YAML-first；
+  # 这里继续保留原 XML logicalFilePath，是为了兼容既有 DATABASECHANGELOG 记录。
+  - logicalFilePath: "DB/changelog/db.changelog-master.xml"
+  - changeSet:
+      id: "1"
+      author: "shilaoban"
+      changes:
+        - createTable:
+            tableName: "chat_session"
+            columns:
+              - column:
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "user_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "user_name"
+                  type: "VARCHAR(255)"
+              - column:
+                  name: "system_role"
+                  type: "VARCHAR(64)"
+              - column:
+                  name: "session_name"
+                  type: "VARCHAR(64)"
+              - column:
+                  name: "session_status"
+                  type: "VARCHAR(64)"
+                  defaultValue: "active"
+              - column:
+                  name: "title"
+                  type: "VARCHAR(255)"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+  - changeSet:
+      id: "2"
+      author: "shilaoban"
+      changes:
+        - createTable:
+            tableName: "chat_message"
+            columns:
+              - column:
+                  name: "chat_id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+                    foreignKeyName: "fk_chat_message_session"
+                    referencedTableName: "chat_session"
+                    referencedColumnNames: "session_id"
+              - column:
+                  name: "chat_role"
+                  type: "VARCHAR(20)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "content_type"
+                  type: "VARCHAR(20)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "status"
+                  type: "VARCHAR(20)"
+                  defaultValue: "pending"
+              - column:
+                  name: "content"
+                  type: "TEXT"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - createIndex:
+            indexName: "idx_session_id"
+            tableName: "chat_message"
+            columns:
+              - column:
+                  name: "session_id"
+  - include:
+      # 用户与账户基础表。
+      file: "DB/changelog/db.changelog-users.yaml"
+      relativeToChangelogFile: false
+  - include:
+      # AI 任务关键词等业务辅助表。
+      file: "DB/changelog/db.changelog-ai-task-keywords.yaml"
+      relativeToChangelogFile: false
+  - include:
+      # 长时记忆摘要相关表。
+      file: "DB/changelog/db.changelog-memory-summary.yaml"
+      relativeToChangelogFile: false
+  - include:
+      # 模型目录与模型元数据。
+      file: "DB/changelog/db.changelog-ai-models.yaml"
+      relativeToChangelogFile: false
+  - include:
+      # Provider 注册表（模型提供商配置 + 加密 API Key），供后台维护。
+      file: "DB/changelog/db.changelog-ai-provider.yaml"
+      relativeToChangelogFile: false
+  - include:
+      # RAG 文档、分块、摄取事件等检索增强能力。
+      file: "DB/changelog/db.changelog-rag.yaml"
+      relativeToChangelogFile: false
+  - include:
+      # 计费、角色默认模型、套餐权益、workspace 多租户能力。
+      file: "DB/changelog/db.changelog-billing-roles-tenancy.yaml"
+      relativeToChangelogFile: false
+  - include:
+      # Skill / Tool 技能商店与会话级工具开关。
+      file: "DB/changelog/db.changelog-skills.yaml"
+      relativeToChangelogFile: false

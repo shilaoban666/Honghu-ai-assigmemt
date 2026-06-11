@@ -1,0 +1,19 @@
+# Build output
+target/
+# VCS & CI
+.git/
+.github/
+# IDE / AI tooling
+.idea/
+.claude/
+.deepseek/
+.vscode/
+# Runtime & docs (not needed in the image build context)
+logs/
+docs/
+node_modules/
+*.log
+# Local env / secrets
+.env
+.env.local
+src/main/resources/application-local.yml

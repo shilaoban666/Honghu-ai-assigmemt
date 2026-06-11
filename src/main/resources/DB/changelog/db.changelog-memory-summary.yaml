@@ -1,0 +1,114 @@
+databaseChangeLog:
+  # YAML-first 维护，XML 仅作为 logicalFilePath 兼容锚点保留下来。
+  - logicalFilePath: "DB/changelog/db.changelog-memory-summary.xml"
+  - changeSet:
+      id: "5"
+      author: "copilot"
+      changes:
+        - createTable:
+            tableName: "chat_session_profile"
+            columns:
+              - column:
+                  name: "session_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "user_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "profile_summary"
+                  type: "TEXT"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "last_summarized_chat_id"
+                  type: "BIGINT"
+              - column:
+                  name: "summarized_message_count"
+                  type: "INT"
+              - column:
+                  name: "summary_model"
+                  type: "VARCHAR(64)"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - addForeignKeyConstraint:
+            baseTableName: "chat_session_profile"
+            baseColumnNames: "session_id"
+            referencedTableName: "chat_session"
+            referencedColumnNames: "session_id"
+            constraintName: "fk_chat_session_profile_session"
+        - addForeignKeyConstraint:
+            baseTableName: "chat_session_profile"
+            baseColumnNames: "user_id"
+            referencedTableName: "users"
+            referencedColumnNames: "user_id"
+            constraintName: "fk_chat_session_profile_user"
+        - createIndex:
+            tableName: "chat_session_profile"
+            indexName: "idx_chat_session_profile_user_id"
+            columns:
+              - column:
+                  name: "user_id"
+        - createIndex:
+            tableName: "chat_session_profile"
+            indexName: "idx_chat_session_profile_updated_at"
+            columns:
+              - column:
+                  name: "updated_at"
+  - changeSet:
+      id: "6"
+      author: "copilot"
+      changes:
+        - createTable:
+            tableName: "user_profile_snapshot"
+            columns:
+              - column:
+                  name: "user_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "profile_summary"
+                  type: "TEXT"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "source_session_count"
+                  type: "INT"
+              - column:
+                  name: "source_session_ids"
+                  type: "TEXT"
+              - column:
+                  name: "summary_model"
+                  type: "VARCHAR(64)"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+        - addForeignKeyConstraint:
+            baseTableName: "user_profile_snapshot"
+            baseColumnNames: "user_id"
+            referencedTableName: "users"
+            referencedColumnNames: "user_id"
+            constraintName: "fk_user_profile_snapshot_user"
+        - createIndex:
+            tableName: "user_profile_snapshot"
+            indexName: "idx_user_profile_snapshot_updated_at"
+            columns:
+              - column:
+                  name: "updated_at"

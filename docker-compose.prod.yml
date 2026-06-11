@@ -1,0 +1,37 @@
+# 生产覆盖层 —— 与基础文件叠加使用：
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# 与开发的关键差异：
+#   - app 使用 GHCR 已发布镜像（不在服务器上构建源码）
+#   - 开启 S3 / SQS / RAG 事件监听
+#   - 走 EC2 IAM Role（不写任何明文密钥）
+#   - 所有容器 restart: unless-stopped
+services:
+  app:
+    image: ghcr.io/shilaoban666/honghu-ai-assigmemt:${IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      AWS_S3_ENABLED: "true"
+      AWS_SQS_ENABLED: "true"
+      APP_RAG_LISTENER_ENABLED: "true"
+      # AWS_PROFILE 留空 → SDK 用 DefaultCredentialsProvider 读取 EC2 实例角色凭证。
+      AWS_PROFILE: ""
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      # 模型 API Key 加密主密钥：生产必须提供稳定强随机值，否则容器拒绝启动（:? 强制）。
+      # 同时关闭开发兜底密钥；一旦该值更改/丢失，后台已加密保存的 Provider API Key 将无法解密。
+      APP_SKILL_SECRET_KEY: ${APP_SKILL_SECRET_KEY:?APP_SKILL_SECRET_KEY 必须在 .env 中设为稳定的强随机值}
+      APP_SKILL_ALLOW_DEV_SECRET_FALLBACK: "false"
+      # 真实前端域名（需后端 CORS 支持该变量，见 DEPLOY.md「CORS」小节）。
+      APP_CORS_ALLOWED_ORIGINS: ${APP_CORS_ALLOWED_ORIGINS:-}
+
+  postgres:
+    restart: unless-stopped
+  redis:
+    restart: unless-stopped
+  etcd:
+    restart: unless-stopped
+  minio:
+    restart: unless-stopped
+  milvus:
+    restart: unless-stopped

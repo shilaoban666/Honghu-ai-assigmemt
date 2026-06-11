@@ -1,0 +1,215 @@
+databaseChangeLog:
+  # YAML-first 维护，继续保留 XML logicalFilePath 以兼容已执行过的历史记录。
+  - logicalFilePath: "DB/changelog/db.changelog-ai-models.xml"
+  - changeSet:
+      id: "7"
+      author: "copilot"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - not:
+            - columnExists:
+                tableName: "users"
+                columnName: "user_role"
+      changes:
+        - addColumn:
+            tableName: "users"
+            columns:
+              - column:
+                  name: "user_role"
+                  type: "VARCHAR(20)"
+                  defaultValue: "USER"
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: "idx_users_role"
+            tableName: "users"
+            columns:
+              - column:
+                  name: "user_role"
+  - changeSet:
+      id: "8"
+      author: "copilot"
+      changes:
+        - createTable:
+            tableName: "ai_model_definition"
+            columns:
+              - column:
+                  name: "model_code"
+                  type: "VARCHAR(100)"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "display_name"
+                  type: "VARCHAR(160)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "provider_code"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "api_model_name"
+                  type: "VARCHAR(160)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "level"
+                  type: "INT"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "local_model"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "supports_stream"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "enabled"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "description"
+                  type: "VARCHAR(500)"
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+        - createIndex:
+            indexName: "idx_ai_model_provider"
+            tableName: "ai_model_definition"
+            columns:
+              - column:
+                  name: "provider_code"
+        - createIndex:
+            indexName: "idx_ai_model_level"
+            tableName: "ai_model_definition"
+            columns:
+              - column:
+                  name: "level"
+  - changeSet:
+      id: "9"
+      author: "copilot"
+      changes:
+        - createTable:
+            tableName: "user_model_permission"
+            columns:
+              - column:
+                  name: "id"
+                  type: "BIGSERIAL"
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: "user_id"
+                  type: "VARCHAR(64)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "model_code"
+                  type: "VARCHAR(100)"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "enabled"
+                  type: "BOOLEAN"
+                  defaultValueBoolean: true
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "created_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+              - column:
+                  name: "updated_at"
+                  type: "TIMESTAMP"
+                  defaultValueComputed: "CURRENT_TIMESTAMP"
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            baseTableName: "user_model_permission"
+            baseColumnNames: "user_id"
+            referencedTableName: "users"
+            referencedColumnNames: "user_id"
+            constraintName: "fk_user_model_permission_user"
+        - addForeignKeyConstraint:
+            baseTableName: "user_model_permission"
+            baseColumnNames: "model_code"
+            referencedTableName: "ai_model_definition"
+            referencedColumnNames: "model_code"
+            constraintName: "fk_user_model_permission_model"
+        - addUniqueConstraint:
+            tableName: "user_model_permission"
+            columnNames: "user_id,model_code"
+            constraintName: "uk_user_model_permission_user_model"
+        - createIndex:
+            indexName: "idx_user_model_permission_user_id"
+            tableName: "user_model_permission"
+            columns:
+              - column:
+                  name: "user_id"
+        - createIndex:
+            indexName: "idx_user_model_permission_model_code"
+            tableName: "user_model_permission"
+            columns:
+              - column:
+                  name: "model_code"
+  - changeSet:
+      id: "9.1"
+      author: "copilot"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - not:
+            - columnExists:
+                tableName: "ai_model_definition"
+                columnName: "score"
+      changes:
+        - addColumn:
+            tableName: "ai_model_definition"
+            columns:
+              - column:
+                  name: "score"
+                  type: "INT"
+                  defaultValueNumeric: 0
+                  valueNumeric: 0
+                  constraints:
+                    nullable: false
+  - changeSet:
+      id: "9.2"
+      author: "copilot"
+      preConditions:
+        - onFail: "MARK_RAN"
+        - and:
+            - columnExists:
+                tableName: "ai_model_definition"
+                columnName: "score"
+            - not:
+                - indexExists:
+                    tableName: "ai_model_definition"
+                    indexName: "idx_ai_model_score"
+      changes:
+        - createIndex:
+            indexName: "idx_ai_model_score"
+            tableName: "ai_model_definition"
+            columns:
+              - column:
+                  name: "score"

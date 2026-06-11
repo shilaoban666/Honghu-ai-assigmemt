@@ -8,11 +8,11 @@
         <version>3.2.0</version>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
-    <groupId>com.honghu.ut.test.ai.assigment</groupId>
-    <artifactId>testDeepseekR1</artifactId>
+    <groupId>com.honghu.ai</groupId>
+    <artifactId>honghu-ai</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>testDeepseekR1</name>
-    <description>testDeepseekR1</description>
+    <name>honghu-ai</name>
+    <description>Honghu AI — 企业级多模型智能对话与 RAG 平台 (Spring Boot 3 + Spring AI)</description>
     <url/>
     <licenses>
         <license/>
@@ -28,7 +28,13 @@
     </scm>
     <properties>
         <java.version>17</java.version>
-        <spring-ai.version>1.0.0-M3</spring-ai.version>
+        <!--
+            Spring AI 统一版本号。
+
+            当前升级到 1.0.0 GA，目的是使用稳定版 ToolCallback、ChatClient、OpenAI-compatible
+            和 Milvus starter API；所有 Spring AI 依赖都引用这个属性，避免不同模块版本不一致。
+        -->
+        <spring-ai.version>1.0.0</spring-ai.version>
     </properties>
 
     <repositories>
@@ -56,13 +62,42 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
         
-        <!-- Spring AI Ollama Starter -->
+        <!--
+            Spring AI Ollama Starter。
+
+            这个 starter 负责本地 Ollama/DeepSeek 测试模型的 Spring AI 集成。
+            升级 1.0.0 后 artifactId 使用 starter-model-ollama，和旧版命名不同。
+        -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-ollama-spring-boot-starter</artifactId>
+            <artifactId>spring-ai-starter-model-ollama</artifactId>
             <version>${spring-ai.version}</version>
         </dependency>
-        
+
+        <!--
+            Spring AI OpenAI Starter。
+
+            当前主要用于 RAG embedding 的 OpenAI-compatible 客户端能力；
+            Chat 调用不直接依赖默认 OpenAiChatModel，而是由 AiChatModelGatewayService 路由到 DeepSeek/Ollama 等 provider。
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+            <version>${spring-ai.version}</version>
+        </dependency>
+
+        <!--
+            Spring AI Milvus Vector Store。
+
+            检索侧仍使用 Spring AI VectorStore 做 similaritySearch；
+            写入侧有自定义 MilvusVectorRepository 负责幂等 delete/insert，两者共享同一套 Milvus 配置。
+        -->
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-vector-store-milvus</artifactId>
+            <version>${spring-ai.version}</version>
+        </dependency>
+
         <!-- Spring Boot Validation -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -96,11 +131,37 @@
             <version>4.12.0</version>
         </dependency>
 
+        <!--
+            Fastjson。
+
+            Milvus Java SDK 的 JSON 字段插入当前使用 com.alibaba.fastjson.JSONObject；
+            这里保留该依赖，避免 RAG 向量写入 metadata JSON 时缺少运行时类型。
+        -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>fastjson</artifactId>
+            <version>1.2.83</version>
+        </dependency>
+
         <!-- Spring Boot Data JPA -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
             <version>3.2.0</version> <!-- 显式指定版本以确保兼容 -->
+        </dependency>
+
+        <!-- Spring Boot Redis（用于基于 Token 的短期记忆滑动窗口） -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+
+        <!-- JTokkit，用于按 token 估算上下文窗口 -->
+        <dependency>
+            <groupId>com.knuddels</groupId>
+            <artifactId>jtokkit</artifactId>
+            <version>1.1.0</version>
         </dependency>
 
         <!-- Spring Boot AOP Starter (for @Transactional) -->
@@ -122,6 +183,50 @@
             <artifactId>liquibase-core</artifactId>
         </dependency>
 
+        <!-- ========================= -->
+        <!-- AWS SDK v2（模块化按需引入） -->
+        <!-- v2 是 AWS 官方推荐版本，相比 v1：                -->
+        <!--   - 完全模块化，按需引入，体积更小              -->
+        <!--   - 原生支持异步（Netty NIO）                   -->
+        <!--   - 不可变模型 + Builder 模式，线程安全          -->
+        <!--   - 持续维护，v1 已进入仅修 Bug 模式            -->
+        <!-- ========================= -->
+
+        <!-- AWS S3（对象存储：文件上传、预签名 URL） -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.25.27</version>
+        </dependency>
+
+        <!-- AWS SQS（消息队列：异步任务、事件驱动） -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>sqs</artifactId>
+            <version>2.25.27</version>
+        </dependency>
+
+        <!-- Spring Cloud AWS SQS：提供 @SqsListener 注解式消息消费能力 -->
+        <dependency>
+            <groupId>io.awspring.cloud</groupId>
+            <artifactId>spring-cloud-aws-starter-sqs</artifactId>
+            <version>3.1.0</version>
+        </dependency>
+
+        <!-- PDFBox：第一版简单 RAG 先支持 PDF / 纯文本文件解析 -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>3.0.2</version>
+        </dependency>
+
+        <!-- Apache POI OOXML：支持 DOCX 文档文本提取 -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
         <!-- Test Dependencies -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -133,6 +238,21 @@
     <build>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <compilerArgs>
+                        <!--
+                            保留 Java 方法参数名。
+
+                            @NativeTool / BuiltinToolIntrospector 需要读取方法参数名生成 JSON Schema；
+                            如果没有 -parameters，反射只能拿到 arg0、arg1，模型看到的工具参数会变得不可读。
+                        -->
+                        <arg>-parameters</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+            <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
@@ -141,10 +261,40 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <mainClass>com.honghu.ut.test.ai.assigment.testdeepseekr1.AiTest</mainClass>
+                    <mainClass>com.honghu.ai.assigment.service.AiTest</mainClass>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            CI profile: run only the infrastructure-free unit tests.
+
+            The full @SpringBootTest context (and the manual Ollama-tunnel
+            runners) need PostgreSQL / Redis / Milvus / a live model endpoint,
+            which CI does not provision. Everything else is Mockito-based and
+            runs anywhere. Activate with: mvn -Pci verify
+        -->
+        <profile>
+            <id>ci</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludes>
+                                <exclude>**/HonghuAiApplicationTests.java</exclude>
+                                <exclude>**/ConnectionExceptionTest.java</exclude>
+                                <exclude>**/ConnectionTest.java</exclude>
+                                <exclude>**/AiTest.java</exclude>
+                            </excludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>
