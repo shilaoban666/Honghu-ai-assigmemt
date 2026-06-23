@@ -82,10 +82,10 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: false
     properties:
       hibernate:
-        format_sql: true
+        format_sql: false
         dialect: org.hibernate.dialect.PostgreSQLDialect
   liquibase:
     # 主入口改为 YAML，便于后续维护；
@@ -109,9 +109,13 @@ logging:
     com.honghu.ai.assigment: DEBUG
     org.springframework.ai.chat.metadata: INFO
     org.springframework.ai: INFO
+    org.hibernate: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.type.descriptor.sql.BasicBinder: WARN
   pattern:
-    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
-    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    # P0-3：日志格式加入 [%X{traceId}]，同一次请求的所有日志行可按 traceId 串联检索
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{traceId:-}] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] [%X{traceId:-}] %-5level %logger{36} - %msg%n"
   charset:
     console: UTF-8
     file: UTF-8
@@ -125,10 +129,19 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # P0-2：新增 prometheus 端点，供 Prometheus 抓取 /actuator/prometheus
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: always
+  metrics:
+    tags:
+      # 给所有指标打上应用名，便于多服务共用一套 Prometheus/Grafana 时区分来源
+      application: ${spring.application.name:honghu-ai}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 # Swagger Configuration
 springdoc:
@@ -140,6 +153,33 @@ springdoc:
 
 # Custom Application Properties
 app:
+  # =========================
+  # 安全与认证（P0-1）
+  # - jwt: 前台用户态签名 token；secret 生产务必用环境变量覆盖（HS256 要求 >= 32 字节）
+  # - dev-header-fallback: 是否允许无 JWT 时用 X-User-Id 充当身份；默认 false（仅信任 JWT）
+  #   本地联调可设 APP_SECURITY_DEV_HEADER_FALLBACK=true
+  # =========================
+  security:
+    dev-header-fallback: ${APP_SECURITY_DEV_HEADER_FALLBACK:false}
+    jwt:
+      secret: ${APP_SECURITY_JWT_SECRET:honghu-ai-dev-secret-change-me-please-0123456789-abcdefghijklmnop}
+      ttl-hours: ${APP_SECURITY_JWT_TTL_HOURS:8}
+      issuer: ${APP_SECURITY_JWT_ISSUER:honghu-ai}
+
+  # =========================
+  # 第三方登录
+  # - wechat: 微信开放平台「网站应用」扫码登录
+  #   没配 app-id/app-secret 或 mock-enabled=true 时走演示模式，便于本地/演示直接跑通；
+  #   生产配上真实凭证并设 APP_AUTH_WECHAT_MOCK_ENABLED=false 切换为真实换取 openid
+  # =========================
+  auth:
+    wechat:
+      enabled: ${APP_AUTH_WECHAT_ENABLED:true}
+      mock-enabled: ${APP_AUTH_WECHAT_MOCK_ENABLED:true}
+      app-id: ${APP_AUTH_WECHAT_APP_ID:}
+      app-secret: ${APP_AUTH_WECHAT_APP_SECRET:}
+      redirect-uri: ${APP_AUTH_WECHAT_REDIRECT_URI:}
+
   ai:
     # =========================
     # AI 模型路由与 provider 配置

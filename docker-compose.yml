@@ -157,9 +157,45 @@ services:
       retries: 10
       start_period: 120s
 
+  # ---------------------- Prometheus (P0-2 可观测性) ----------------------
+  # 抓取 app 的 /actuator/prometheus，存储 QPS/P99/TTFT/路由比例/成本等时序。
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: honghu-prometheus
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=15d"
+    ports:
+      - "9090:9090"
+    depends_on:
+      - app
+
+  # ---------------------- Grafana (P0-2 可观测性) ----------------------
+  # 预置 Prometheus 数据源与「Honghu AI Gateway」看板，开箱即用。
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: honghu-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
 volumes:
   pgdata:
   redisdata:
   etcddata:
   miniodata:
   milvusdata:
+  prometheusdata:
+  grafanadata:

@@ -101,3 +101,26 @@ databaseChangeLog:
               - column:
                   name: "avatar_content_type"
                   type: "VARCHAR(100)"
+
+  - changeSet:
+      id: "3-20260622-user-wechat"
+      author: "shilaoban"
+      comment: "为用户表增加微信 openid / unionid，用于微信扫码登录 find-or-create"
+      changes:
+        - addColumn:
+            tableName: "users"
+            columns:
+              - column:
+                  name: "wechat_openid"
+                  type: "VARCHAR(128)"
+                  constraints:
+                    unique: true
+              - column:
+                  name: "wechat_unionid"
+                  type: "VARCHAR(128)"
+        - createIndex:
+            indexName: "idx_users_wechat_openid"
+            tableName: "users"
+            columns:
+              - column:
+                  name: "wechat_openid"

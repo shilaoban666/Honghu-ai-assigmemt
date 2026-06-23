@@ -61,7 +61,61 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
-        
+
+        <!--
+            Spring Security（P0-1：框架级认证与授权）。
+
+            之前身份完全靠 X-User-Id 请求头 + 内存 opaque token，属于“前端说自己是谁就是谁”。
+            引入正式 Spring Security 过滤链后：
+            - 前台用户态统一由签名 JWT 驱动（见 security/jwt），无法被前端伪造；
+            - 管理端继续用各自的会话校验（AdminAuthService），互不影响；
+            - 通过 @EnableMethodSecurity 支持方法级 RBAC（如用户列表只允许 ADMIN）。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!--
+            Actuator + Micrometer Prometheus（P0-2：可观测性）。
+
+            actuator 暴露 /actuator/health、/actuator/prometheus；
+            micrometer-registry-prometheus 负责把 JVM、http.server.requests 以及
+            我们自定义的网关业务指标（路由比例、token、成本、时延）转成 Prometheus 文本格式。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
+        <!--
+            JJWT（JSON Web Token 签发与校验）。
+
+            api 为编译期接口，impl / jackson 为运行期实现，按官方推荐拆三个坐标引入。
+            用 HS256 + 服务端密钥签名，保证 token 一旦签发就无法被客户端篡改 userId / role。
+        -->
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-api</artifactId>
+            <version>0.12.5</version>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-impl</artifactId>
+            <version>0.12.5</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.jsonwebtoken</groupId>
+            <artifactId>jjwt-jackson</artifactId>
+            <version>0.12.5</version>
+            <scope>runtime</scope>
+        </dependency>
+
         <!--
             Spring AI Ollama Starter。
 
@@ -231,6 +285,13 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Spring Security 测试支持（@WithMockUser、SecurityMockMvc 等），仅测试期使用 -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
