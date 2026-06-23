@@ -54,6 +54,17 @@ public interface UserRepository extends JpaRepository<User, String> {
     Optional<User> findByEmail(String email);
 
     /**
+     * 根据微信 openid 查找用户。
+     *
+     * <p>微信扫码登录 find-or-create 的核心查询：先用 openid 找现有账户，
+     * 找不到再新建，保证同一个微信用户始终复用同一条记录。</p>
+     *
+     * @param wechatOpenid 微信 openid
+     * @return 用户 Optional
+     */
+    Optional<User> findByWechatOpenid(String wechatOpenid);
+
+    /**
      * 根据昵称查找用户列表
      *
      * @param nickname 昵称

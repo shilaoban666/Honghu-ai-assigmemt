@@ -1,15 +1,19 @@
 package com.honghu.ai.assigment.service;
 
+import com.honghu.ai.assigment.dto.RegisterRequest;
 import com.honghu.ai.assigment.entity.User;
 import com.honghu.ai.assigment.exception.LoginServiceException;
 import com.honghu.ai.assigment.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,7 +34,10 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final WorkspaceContextService workspaceContextService;
-    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    /** 统一的密码编码器，由 SecurityConfig 提供（BCrypt）。 */
+    private final PasswordEncoder passwordEncoder;
+    /** 为微信用户生成不可用随机密码，满足 password 非空约束。 */
+    private final SecureRandom secureRandom = new SecureRandom();
 
     /**
      * 创建新用户
@@ -65,10 +72,10 @@ public class UserService {
         
         // 生成 UUID 作为用户 ID
         user.setUserId(UUID.randomUUID().toString());
-        
-        // 加密密码
-        if (user.getPassword() != null && !user.getPassword().isEmpty()) {
-//            user.setPassword(passwordEncoder.encode(user.getPassword()));
+
+        // 加密密码：注册一律以 BCrypt 落库，杜绝明文密码。
+        if (StringUtils.hasText(user.getPassword())) {
+            user.setPassword(passwordEncoder.encode(user.getPassword()));
         }
         
         // 设置默认值
@@ -316,9 +323,10 @@ public class UserService {
      * @return 验证成功返回用户，失败抛出异常
      * @throws RuntimeException 当用户不存在或密码错误时抛出
      */
+    @Transactional
     public User authenticate(String username, String rawPassword) {
         log.info("用户登录验证：{}", username);
-        
+
         // 查询用户
         User user = userRepository.findByUsername(username)
                 .orElseThrow(() -> {
@@ -326,20 +334,124 @@ public class UserService {
                     log.warn(errorMsg);
                     return new RuntimeException(errorMsg);
                 });
-        if (!rawPassword.equalsIgnoreCase(user.getPassword())){
-            String errorMsg = "密码错误";
-            log.warn("用户 {} 密码验证失败", username);
-            throw new LoginServiceException(errorMsg);
+
+        String stored = user.getPassword();
+        boolean matched;
+        if (isBcryptHash(stored)) {
+            // 正常路径：库里已是 BCrypt 哈希，用 matches 做带盐校验。
+            matched = passwordEncoder.matches(rawPassword, stored);
+        } else {
+            // 兼容历史明文密码（含 insert-admin-user.sql 等早期种子数据）：
+            // 大小写敏感地常量比较，命中后立即“登录即升级”为 BCrypt，逐步消灭明文。
+            matched = stored != null && java.security.MessageDigest.isEqual(
+                    rawPassword.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    stored.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            if (matched) {
+                user.setPassword(passwordEncoder.encode(rawPassword));
+                userRepository.save(user);
+                log.info("用户 {} 的历史明文密码已在登录时升级为 BCrypt", username);
+            }
         }
-//        // 验证密码
-//        if (!passwordEncoder.matches(rawPassword, user.getPassword())) {
-//            String errorMsg = "密码错误";
-//            log.warn("用户 {} 密码验证失败", username);
-//            throw new RuntimeException(errorMsg);
-//        }
-        
+
+        if (!matched) {
+            log.warn("用户 {} 密码验证失败", username);
+            throw new LoginServiceException("密码错误");
+        }
+
         log.info("用户 {} 登录验证成功", username);
         return user;
+    }
+
+    /**
+     * 用注册请求创建用户（注册接口入口）。
+     *
+     * <p>把 DTO 收敛成实体后复用 {@link #createUser(User)}，统一走唯一性校验与密码哈希。</p>
+     *
+     * @param request 注册请求
+     * @return 创建后的用户（密码已 BCrypt）
+     */
+    @Transactional
+    public User registerUser(RegisterRequest request) {
+        User user = User.builder()
+                .username(request.getUsername())
+                .password(request.getPassword())
+                .phone(StringUtils.hasText(request.getPhone()) ? request.getPhone() : null)
+                .email(StringUtils.hasText(request.getEmail()) ? request.getEmail() : null)
+                .nickname(StringUtils.hasText(request.getNickname()) ? request.getNickname() : request.getUsername())
+                .userStatus(User.UserStatus.ACTIVE)
+                .userRole(User.UserRole.USER)
+                .build();
+        return createUser(user);
+    }
+
+    /**
+     * 按微信 openid 查找用户，找不到则自动注册一个。
+     *
+     * <p>微信用户没有平台密码，这里写入一段随机不可用密码以满足非空约束，
+     * 即“能微信登录、但无法用账号密码登录”，避免空密码或弱默认密码风险。</p>
+     *
+     * @param openid   微信 openid（必填）
+     * @param unionid  微信 unionid（可空）
+     * @param nickname 微信昵称（可空）
+     * @return 命中或新建的用户
+     */
+    @Transactional
+    public User findOrCreateWeChatUser(String openid, String unionid, String nickname) {
+        if (!StringUtils.hasText(openid)) {
+            throw new IllegalArgumentException("微信 openid 不能为空");
+        }
+        return userRepository.findByWechatOpenid(openid).map(existing -> {
+            // 已存在：补全可能新增的 unionid。
+            if (StringUtils.hasText(unionid) && !StringUtils.hasText(existing.getWechatUnionid())) {
+                existing.setWechatUnionid(unionid);
+                userRepository.save(existing);
+            }
+            return existing;
+        }).orElseGet(() -> {
+            String safeNickname = StringUtils.hasText(nickname) ? nickname : "微信用户";
+            User user = User.builder()
+                    .userId(UUID.randomUUID().toString())
+                    .username("wx_" + openid)
+                    .nickname(safeNickname)
+                    .password(passwordEncoder.encode(randomSecret()))
+                    .wechatOpenid(openid)
+                    .wechatUnionid(StringUtils.hasText(unionid) ? unionid : null)
+                    .gender(User.Gender.OTHER)
+                    .userStatus(User.UserStatus.ACTIVE)
+                    .userRole(User.UserRole.USER)
+                    .build();
+            User saved = userRepository.save(user);
+            workspaceContextService.ensurePersonalWorkspace(saved);
+            log.info("微信新用户已创建：openid={}, userId={}", openid, saved.getUserId());
+            return saved;
+        });
+    }
+
+    /** 用户名是否已存在。 */
+    public boolean existsByUsername(String username) {
+        return userRepository.existsByUsername(username);
+    }
+
+    /** 手机号是否已存在。 */
+    public boolean existsByPhone(String phone) {
+        return userRepository.existsByPhone(phone);
+    }
+
+    /** 邮箱是否已存在。 */
+    public boolean existsByEmail(String email) {
+        return userRepository.existsByEmail(email);
+    }
+
+    /** 判断字符串是否为 BCrypt 哈希。 */
+    private boolean isBcryptHash(String value) {
+        return value != null && (value.startsWith("$2a$") || value.startsWith("$2b$") || value.startsWith("$2y$"));
+    }
+
+    /** 生成一段随机密钥，用作微信用户的占位密码。 */
+    private String randomSecret() {
+        byte[] bytes = new byte[24];
+        secureRandom.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     /**

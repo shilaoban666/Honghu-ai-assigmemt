@@ -9,9 +9,11 @@ import com.honghu.ai.assigment.entity.AiModelDefinition;
 import com.honghu.ai.assigment.entity.AiUsageEvent;
 import com.honghu.ai.assigment.exception.PricingNotConfiguredException;
 import com.honghu.ai.assigment.exception.QuotaExceededException;
+import com.honghu.ai.assigment.observability.GatewayMetrics;
 import com.honghu.ai.assigment.util.ConnectionHealthChecker;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.ollama.OllamaChatModel;
@@ -62,6 +64,16 @@ public class AiChatModelGatewayService {
 	private final BillingService billingService;
 	private final UsageEventService usageEventService;
 	private final QuotaService quotaService;
+
+	/**
+	 * 业务指标埋点（P0-2），可选注入。
+	 *
+	 * <p>用 {@code @Autowired(required = false)} 字段注入而非构造器注入：生产环境由 Spring 装配，
+	 * 而既有单元测试用 {@code new AiChatModelGatewayService(...)} 构造，这里保持为 null 并在用前判空，
+	 * 从而在不改测试构造签名的前提下补上首 token 时延（TTFT）指标。</p>
+	 */
+	@Autowired(required = false)
+	private GatewayMetrics gatewayMetrics;
 
 	/**
 	 * 执行一次非流式聊天调用。
@@ -162,6 +174,7 @@ public class AiChatModelGatewayService {
 		List<ToolCallback> normalizedToolCallbacks = normalizeToolCallbacks(toolCallbacks);
 		StringBuilder content = new StringBuilder();
 		ChatResponse.TokenUsage[] lastUsage = new ChatResponse.TokenUsage[1];
+		boolean[] firstTokenRecorded = new boolean[]{false};
 		Flux<ChatResponse> upstream = switch (provider.getType()) {
 			// 本地 Ollama 分支负责把工具集合放进 OllamaOptions。
 			case OLLAMA_LOCAL -> streamWithLocalFallback(executableModel, messages, temperature, maxTokens, normalizedToolCallbacks, toolContext);
@@ -170,7 +183,15 @@ public class AiChatModelGatewayService {
 		};
 		return upstream
 				.doOnNext(response -> {
-					if (response.getContent() != null) {
+					if (response.getContent() != null && !response.getContent().isEmpty()) {
+						// 首个非空内容分片到达时记录 TTFT（首 token 时延），这是 LLM 体验的关键指标。
+						if (!firstTokenRecorded[0]) {
+							firstTokenRecorded[0] = true;
+							if (gatewayMetrics != null) {
+								gatewayMetrics.recordFirstTokenLatency(
+										executableModel.getProviderCode(), executableModel.getModelCode(), elapsedMs(startNs));
+							}
+						}
 						content.append(response.getContent());
 					}
 					if (response.getTokenUsage() != null) {
