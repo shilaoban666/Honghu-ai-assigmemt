@@ -28,6 +28,7 @@
 - [项目简介](#项目简介)
 - [核心能力](#核心能力)
 - [系统架构](#系统架构)
+- [安全架构](#安全架构)
 - [技术栈](#技术栈)
 - [快速开始（Docker 一条命令）](#-快速开始docker-一条命令)
 - [本地开发启动](#本地开发启动)
@@ -119,6 +120,19 @@
 | 技能系统后端架构 | [`docs/skill-mcp-backend-architecture.svg`](docs/skill-mcp-backend-architecture.svg) |
 | 技能系统运行时流 | [`docs/skill-mcp-runtime-flow.svg`](docs/skill-mcp-runtime-flow.svg) |
 | 技能系统数据模型 | [`docs/skill-mcp-data-model.svg`](docs/skill-mcp-data-model.svg) |
+| 安全架构（认证 / 授权 / 工具 / 审计） | [`docs/security-architecture.md`](docs/security-architecture.md) |
+
+---
+
+## 安全架构
+
+Honghu AI 的安全边界覆盖 JWT 认证、workspace 租户隔离、模型权益、RAG 所有权、MCP SSRF 防护、CLI 危险命令门、密钥 AES-GCM 加密与工具调用审计。
+
+<p align="center">
+  <img src="docs/images/honghu-ai-security-architecture.svg" alt="Honghu AI 安全架构图" width="96%"/>
+</p>
+
+详细说明见：[安全架构文档](docs/security-architecture.md)。
 
 ---
 

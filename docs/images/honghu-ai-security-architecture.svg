@@ -1,0 +1,215 @@
+<svg width="1280" height="860" viewBox="0 0 1280 860" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Honghu AI 安全架构图</title>
+  <desc id="desc">Honghu AI 从请求入口、身份认证、业务授权、AI 网关、技能工具到数据审计的安全架构。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M1 1L9 5L1 9Z" fill="#7f7b73"/>
+    </marker>
+    <marker id="arrow-orange" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M1 1L9 5L1 9Z" fill="#d9963a"/>
+    </marker>
+    <style>
+      .bg { fill: #fbfaf7; }
+      .panel { fill: #fffdf8; stroke: #ded9cf; stroke-width: 1.5; }
+      .lane { fill: #f7f5ef; stroke: #ded9cf; stroke-width: 1.2; stroke-dasharray: 7 7; }
+      .neutral { fill: #f7f5ef; stroke: #aaa69d; }
+      .blue { fill: #e8f3ff; stroke: #6aa3df; }
+      .green { fill: #dff4ee; stroke: #4ba993; }
+      .orange { fill: #fff1dc; stroke: #d9963a; }
+      .purple { fill: #eeeaff; stroke: #8b80e8; }
+      .red { fill: #fff0ee; stroke: #d77b72; }
+      .node { stroke-width: 1.7; rx: 9; }
+      .small { stroke-width: 1.4; rx: 7; }
+      .title { font: 700 26px "Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif; fill: #2f312f; }
+      .subtitle { font: 400 13px "Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif; fill: #6c6861; }
+      .section { font: 700 15px "Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif; fill: #55514a; }
+      .label { font: 700 15px "Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif; fill: #333333; }
+      .text { font: 500 12.5px "Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif; fill: #3f3f3f; }
+      .muted { font: 400 11.5px "Microsoft YaHei","PingFang SC","Noto Sans CJK SC",Arial,sans-serif; fill: #6c6861; }
+      .code { font: 500 11.5px Consolas, "Courier New", monospace; fill: #514f4a; }
+      .arrow { stroke: #7f7b73; stroke-width: 1.7; marker-end: url(#arrow); }
+      .arrow2 { stroke: #d9963a; stroke-width: 2; marker-end: url(#arrow-orange); }
+      .dash { stroke: #7f7b73; stroke-width: 1.5; stroke-dasharray: 6 6; marker-end: url(#arrow); }
+    </style>
+  </defs>
+
+  <rect width="1280" height="860" class="bg"/>
+  <rect x="28" y="24" width="1224" height="812" rx="16" class="panel"/>
+
+  <text x="52" y="62" class="title">Honghu AI 安全架构</text>
+  <text x="52" y="86" class="subtitle">可信身份、租户隔离、模型权益、工具审批、密钥加密与全链路审计</text>
+
+  <rect x="52" y="116" width="240" height="660" rx="12" class="lane"/>
+  <rect x="312" y="116" width="250" height="660" rx="12" class="lane"/>
+  <rect x="582" y="116" width="282" height="660" rx="12" class="lane"/>
+  <rect x="884" y="116" width="316" height="660" rx="12" class="lane"/>
+
+  <text x="72" y="144" class="section">① 入口与认证</text>
+  <text x="332" y="144" class="section">② 业务授权</text>
+  <text x="602" y="144" class="section">③ AI 调用与工具边界</text>
+  <text x="904" y="144" class="section">④ 数据、密钥与审计</text>
+
+  <!-- Lane 1 -->
+  <rect x="78" y="170" width="188" height="70" class="node neutral"/>
+  <text x="172" y="196" text-anchor="middle" class="label">Client / UI</text>
+  <text x="172" y="216" text-anchor="middle" class="text">Authorization: Bearer JWT</text>
+  <text x="172" y="232" text-anchor="middle" class="muted">X-Workspace-Id 仅表示选择空间</text>
+
+  <rect x="78" y="278" width="188" height="76" class="node blue"/>
+  <text x="172" y="304" text-anchor="middle" class="label">TraceIdFilter</text>
+  <text x="172" y="324" text-anchor="middle" class="text">生成 / 透传 traceId</text>
+  <text x="172" y="340" text-anchor="middle" class="code">X-Trace-Id / MDC</text>
+
+  <rect x="78" y="392" width="188" height="88" class="node blue"/>
+  <text x="172" y="418" text-anchor="middle" class="label">Spring Security</text>
+  <text x="172" y="438" text-anchor="middle" class="text">无状态 REST + JWT</text>
+  <text x="172" y="454" text-anchor="middle" class="text">公开登录 / 健康 / 文档</text>
+  <text x="172" y="470" text-anchor="middle" class="muted">敏感读接口要求 ADMIN</text>
+
+  <rect x="78" y="520" width="188" height="100" class="node green"/>
+  <text x="172" y="546" text-anchor="middle" class="label">JwtAuthenticationFilter</text>
+  <text x="172" y="566" text-anchor="middle" class="text">验签、过期、角色解析</text>
+  <text x="172" y="582" text-anchor="middle" class="text">写入 SecurityContext</text>
+  <text x="172" y="598" text-anchor="middle" class="muted">覆盖 / 抹掉 X-User-Id</text>
+
+  <rect x="78" y="660" width="188" height="74" class="node orange"/>
+  <text x="172" y="686" text-anchor="middle" class="label">CurrentUserService</text>
+  <text x="172" y="706" text-anchor="middle" class="text">可信 userId / role</text>
+  <text x="172" y="722" text-anchor="middle" class="muted">生产禁用 header fallback</text>
+
+  <!-- Lane 2 -->
+  <rect x="342" y="170" width="190" height="82" class="node green"/>
+  <text x="437" y="196" text-anchor="middle" class="label">WorkspaceContext</text>
+  <text x="437" y="216" text-anchor="middle" class="text">解析个人 / 企业空间</text>
+  <text x="437" y="232" text-anchor="middle" class="text">校验 ACTIVE 成员</text>
+
+  <rect x="342" y="292" width="190" height="92" class="node purple"/>
+  <text x="437" y="318" text-anchor="middle" class="label">EntitlementService</text>
+  <text x="437" y="338" text-anchor="middle" class="text">角色默认模型</text>
+  <text x="437" y="354" text-anchor="middle" class="text">套餐权益 + 覆盖规则</text>
+  <text x="437" y="370" text-anchor="middle" class="muted">DENY &gt; GRANT &gt; base</text>
+
+  <rect x="342" y="424" width="190" height="88" class="node orange"/>
+  <text x="437" y="450" text-anchor="middle" class="label">QuotaService</text>
+  <text x="437" y="470" text-anchor="middle" class="text">调用前配额检查</text>
+  <text x="437" y="486" text-anchor="middle" class="text">个人 / workspace 额度池</text>
+  <text x="437" y="502" text-anchor="middle" class="muted">按 CNY 成本拦截</text>
+
+  <rect x="342" y="552" width="190" height="98" class="node green"/>
+  <text x="437" y="578" text-anchor="middle" class="label">RagAccessGuard</text>
+  <text x="437" y="598" text-anchor="middle" class="text">userId 一致性</text>
+  <text x="437" y="614" text-anchor="middle" class="text">session owner 校验</text>
+  <text x="437" y="630" text-anchor="middle" class="muted">防跨用户上传 / 检索</text>
+
+  <rect x="342" y="690" width="190" height="62" class="node blue"/>
+  <text x="437" y="716" text-anchor="middle" class="label">AdminAuthService</text>
+  <text x="437" y="736" text-anchor="middle" class="text">ADMIN 后台 token + TTL</text>
+
+  <!-- Lane 3 -->
+  <rect x="612" y="170" width="222" height="104" class="node blue"/>
+  <text x="723" y="196" text-anchor="middle" class="label">AiChatModelGateway</text>
+  <text x="723" y="216" text-anchor="middle" class="text">统一模型调用入口</text>
+  <text x="723" y="232" text-anchor="middle" class="text">配额 → Provider → 计费</text>
+  <text x="723" y="248" text-anchor="middle" class="muted">requestId / sessionId / chatId</text>
+
+  <rect x="612" y="314" width="222" height="88" class="node purple"/>
+  <text x="723" y="340" text-anchor="middle" class="label">Provider 调用</text>
+  <text x="723" y="360" text-anchor="middle" class="text">Ollama Local / OpenAI-compatible</text>
+  <text x="723" y="376" text-anchor="middle" class="text">工具调用最多 5 轮</text>
+  <text x="723" y="392" text-anchor="middle" class="muted">本地失败可云端 fallback</text>
+
+  <rect x="612" y="442" width="222" height="94" class="node green"/>
+  <text x="723" y="468" text-anchor="middle" class="label">SkillResolverService</text>
+  <text x="723" y="488" text-anchor="middle" class="text">角色 + 会话开关</text>
+  <text x="723" y="504" text-anchor="middle" class="text">BUILTIN / MCP / CLI</text>
+  <text x="723" y="520" text-anchor="middle" class="muted">只注入当前可见工具</text>
+
+  <rect x="612" y="576" width="222" height="96" class="node orange"/>
+  <text x="723" y="602" text-anchor="middle" class="label">AuditingToolCallback</text>
+  <text x="723" y="622" text-anchor="middle" class="text">可信 ToolContext 注入</text>
+  <text x="723" y="638" text-anchor="middle" class="text">ToolGuard 审批拦截</text>
+  <text x="723" y="654" text-anchor="middle" class="muted">SUCCESS / DENIED / ERROR</text>
+
+  <rect x="612" y="712" width="104" height="46" class="small red"/>
+  <text x="664" y="733" text-anchor="middle" class="label">CLI</text>
+  <text x="664" y="749" text-anchor="middle" class="muted">DANGEROUS</text>
+
+  <rect x="730" y="712" width="104" height="46" class="small orange"/>
+  <text x="782" y="733" text-anchor="middle" class="label">MCP</text>
+  <text x="782" y="749" text-anchor="middle" class="muted">SSRF 防护</text>
+
+  <!-- Lane 4 -->
+  <rect x="914" y="170" width="120" height="74" class="node green"/>
+  <text x="974" y="196" text-anchor="middle" class="label">PostgreSQL</text>
+  <text x="974" y="216" text-anchor="middle" class="text">用户 / 权益</text>
+  <text x="974" y="232" text-anchor="middle" class="text">审计流水</text>
+
+  <rect x="1054" y="170" width="120" height="74" class="node green"/>
+  <text x="1114" y="196" text-anchor="middle" class="label">Redis</text>
+  <text x="1114" y="216" text-anchor="middle" class="text">记忆缓存</text>
+  <text x="1114" y="232" text-anchor="middle" class="text">state / lock</text>
+
+  <rect x="914" y="284" width="120" height="74" class="node purple"/>
+  <text x="974" y="310" text-anchor="middle" class="label">Milvus</text>
+  <text x="974" y="330" text-anchor="middle" class="text">RAG 向量</text>
+  <text x="974" y="346" text-anchor="middle" class="muted">带归属 metadata</text>
+
+  <rect x="1054" y="284" width="120" height="74" class="node orange"/>
+  <text x="1114" y="310" text-anchor="middle" class="label">S3 / SQS</text>
+  <text x="1114" y="330" text-anchor="middle" class="text">预签名上传</text>
+  <text x="1114" y="346" text-anchor="middle" class="text">异步摄取</text>
+
+  <rect x="914" y="398" width="260" height="86" class="node orange"/>
+  <text x="1044" y="424" text-anchor="middle" class="label">SecretCipher</text>
+  <text x="1044" y="444" text-anchor="middle" class="text">AES-GCM 加密敏感字段</text>
+  <text x="1044" y="460" text-anchor="middle" class="text">apiKey / token / password / secret</text>
+  <text x="1044" y="476" text-anchor="middle" class="muted">运行时按需解密，不回传明文</text>
+
+  <rect x="914" y="524" width="260" height="96" class="node blue"/>
+  <text x="1044" y="550" text-anchor="middle" class="label">UsageEventService</text>
+  <text x="1044" y="570" text-anchor="middle" class="text">ai_usage_event</text>
+  <text x="1044" y="586" text-anchor="middle" class="text">SUCCESS / FAILED / BLOCKED</text>
+  <text x="1044" y="602" text-anchor="middle" class="muted">requestId + attemptNo 幂等</text>
+
+  <rect x="914" y="660" width="260" height="96" class="node purple"/>
+  <text x="1044" y="686" text-anchor="middle" class="label">ToolInvocationLog</text>
+  <text x="1044" y="706" text-anchor="middle" class="text">工具参数、结果预览、耗时</text>
+  <text x="1044" y="722" text-anchor="middle" class="text">DENIED 原因 / ERROR 信息</text>
+  <text x="1044" y="738" text-anchor="middle" class="muted">按 user/session/message 反查</text>
+
+  <!-- Arrows main -->
+  <path d="M172 240V278" class="arrow"/>
+  <path d="M172 354V392" class="arrow"/>
+  <path d="M172 480V520" class="arrow"/>
+  <path d="M172 620V660" class="arrow"/>
+  <path d="M266 697H342" class="arrow"/>
+  <path d="M437 252V292" class="arrow"/>
+  <path d="M437 384V424" class="arrow"/>
+  <path d="M532 468H612" class="arrow"/>
+  <path d="M723 274V314" class="arrow2"/>
+  <path d="M723 402V442" class="arrow"/>
+  <path d="M723 536V576" class="arrow2"/>
+  <path d="M678 672L664 712" class="arrow"/>
+  <path d="M768 672L782 712" class="arrow"/>
+
+  <!-- Arrows to data -->
+  <path d="M532 211H914" class="dash"/>
+  <path d="M532 601H914" class="dash"/>
+  <path d="M834 222H914" class="arrow2"/>
+  <path d="M834 358H914" class="arrow2"/>
+  <path d="M834 624H914" class="arrow2"/>
+  <path d="M782 712H914V708" class="dash"/>
+  <path d="M664 758H914V736" class="dash"/>
+  <path d="M1044 484V524" class="arrow"/>
+  <path d="M1044 620V660" class="arrow"/>
+
+  <!-- Callouts -->
+  <rect x="52" y="794" width="360" height="26" rx="6" fill="#dff4ee" stroke="#4ba993"/>
+  <text x="232" y="812" text-anchor="middle" class="text">生产默认：只信任 JWT，不信任前端 X-User-Id</text>
+
+  <rect x="442" y="794" width="360" height="26" rx="6" fill="#fff1dc" stroke="#d9963a"/>
+  <text x="622" y="812" text-anchor="middle" class="text">模型可用性 = 角色 / 套餐 / workspace / 用户覆盖共同计算</text>
+
+  <rect x="832" y="794" width="368" height="26" rx="6" fill="#eeeaff" stroke="#8b80e8"/>
+  <text x="1016" y="812" text-anchor="middle" class="text">工具执行前统一审批与审计，MCP 防 SSRF，CLI 不走 shell</text>
+</svg>

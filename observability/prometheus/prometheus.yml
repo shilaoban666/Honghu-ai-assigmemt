@@ -1,0 +1,15 @@
+# Prometheus 抓取配置（P0-2）
+# 抓取 Honghu AI 后端的 /actuator/prometheus 端点。
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: "honghu-ai-gateway"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      # docker-compose 网络内通过服务名 app:8080 访问；
+      # 若用本机 java -jar 跑应用，改成 host.docker.internal:8080。
+      - targets: ["app:8080"]
+        labels:
+          application: "honghu-ai"

@@ -7,6 +7,7 @@ import com.honghu.ai.assigment.dto.ChatResponse;
 import com.honghu.ai.assigment.dto.CostBreakdown;
 import com.honghu.ai.assigment.entity.AiModelDefinition;
 import com.honghu.ai.assigment.entity.AiUsageEvent;
+import com.honghu.ai.assigment.observability.GatewayMetrics;
 import com.honghu.ai.assigment.repository.AiUsageEventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ public class UsageEventService {
 
     private final AiUsageEventRepository aiUsageEventRepository;
     private final ObjectMapper objectMapper;
+    private final GatewayMetrics gatewayMetrics;
 
     /**
      * 记录一次成功的 AI 调用流水。
@@ -125,6 +127,18 @@ public class UsageEventService {
                 .rawUsageJson(toJsonQuietly(usage))
                 .build();
         aiUsageEventRepository.save(event);
+
+        // 落库成功后同步导出 Prometheus 业务指标（路由比例 / token / 成本 / 时延 / 状态）。
+        // 放在 dedup 校验之后，确保和流水一样“每次有效调用只计一次”。
+        gatewayMetrics.recordUsage(
+                event.getProviderCode(),
+                event.getModelCode(),
+                event.getEffectiveModelCode(),
+                status.name(),
+                event.getPromptTokens(),
+                event.getCompletionTokens(),
+                event.getCostBilled(),
+                latencyMs);
     }
 
     /** 把空 Integer 归一化成 0，避免数据库非空字段写入失败。 */

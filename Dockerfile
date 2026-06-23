@@ -1,18 +1,22 @@
-# syntax=docker/dockerfile:1
-
 # ============================================================
 # Stage 1 — Build the Spring Boot fat jar with Maven + JDK 17
 # ============================================================
 FROM maven:3.9-eclipse-temurin-17 AS build
 WORKDIR /build
 
-# Resolve dependencies first so this layer is cached across source-only changes.
+# Use Aliyun mirror for faster downloads in China.
+COPY .mvn/maven-settings.xml /root/.m2/settings.xml
+
+# Resolve dependencies first — uses a BuildKit cache mount so .m2 survives rebuilds.
+# The cache is named "m2-repo" and shared across builds of this project.
 COPY pom.xml .
-RUN mvn -B -ntp dependency:go-offline -DskipTests || true
+RUN --mount=type=cache,target=/root/.m2,id=m2-repo \
+    mvn -B -ntp dependency:go-offline -DskipTests
 
 # Compile and package (tests run in CI, not in the image build).
 COPY src ./src
-RUN mvn -B -ntp clean package -DskipTests
+RUN --mount=type=cache,target=/root/.m2,id=m2-repo \
+    mvn -B -ntp clean package -DskipTests
 
 # ============================================================
 # Stage 2 — Minimal JRE runtime
